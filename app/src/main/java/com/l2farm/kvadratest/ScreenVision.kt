@@ -24,7 +24,7 @@ object ScreenVision {
         fun red(c:IntArray)=c[0]>125 && c[0]>c[1]*1.45 && c[0]>c[2]*1.3
         fun blue(c:IntArray)=c[2]>125 && c[2]>c[0]*1.4 && c[2]>c[1]*1.18
         fun gold(c:IntArray)=c[0]>125 && c[1]>75 && c[0]>c[2]*1.5 && c[1]>c[2]*1.4
-        data class Bar(val percent:Int?,val hits:Int,val continuity:Int)
+        data class Bar(val percent:Int?,val hits:Int,val continuity:Int, val confidence:Int)
         fun bar(x1:Int,x2:Int,yy:Int,predicate:(IntArray)->Boolean):Bar {
             val start=sx(x1)
             val end=sx(x2)
@@ -32,23 +32,35 @@ object ScreenVision {
             var hits=0
             var longest=0
             var current=0
-            var last=-1
+            var bestEnd=-1
+            var bestStart=-1
+            var runStart=-1
+            var samples=0
             for(xx in start..end step step) {
+                samples++
                 val ok=listOf(-2,0,2).count { dy ->
                     rgb(xx,sy(yy)+dy)?.let(predicate)==true
                 }>=2
                 if(ok) {
                     hits++
+                    if(current==0) runStart=xx
                     current++
-                    longest=maxOf(longest,current)
-                    last=xx
+                    if(current>longest) {
+                        longest=current
+                        bestStart=runStart
+                        bestEnd=xx
+                    }
                 } else current=0
             }
-            val total=((end-start)/step+1).coerceAtLeast(1)
-            // Never infer a percentage from a few unrelated pixels.
-            if(hits<total/15 || longest<total/25 || last<0) return Bar(null,hits,longest)
-            val pct=((last-start)*100.0/(end-start).coerceAtLeast(1)).toInt().coerceIn(0,100)
-            return Bar(pct,hits,longest)
+            val total=samples.coerceAtLeast(1)
+            // Ignore isolated UI pixels and unrelated red/gold/blue elements.
+            val minRun=(total/20).coerceAtLeast(3)
+            val nearLeft=bestStart>=0 && bestStart-start <= (end-start)/12
+            if(longest<minRun || !nearLeft) return Bar(null,hits,longest,0)
+            val pct=((bestEnd-start)*100.0/(end-start).coerceAtLeast(1))
+                .toInt().coerceIn(0,100)
+            val confidence=(longest*100/total).coerceIn(0,100)
+            return Bar(pct,hits,longest,confidence)
         }
         // x=126..383 are the full player bars in the actual PNG (not 154..460).
         fun darkAt(x:Int,y:Int):Boolean {
@@ -73,7 +85,7 @@ object ScreenVision {
             val c=rgb(sx(180),sy(yy))
             "$yy:"+(c?.joinToString(",") ?: "?")
         }
-        val diagnostics="gameHud=$gameHud panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} rgb=$probe"
+        val diagnostics="gameHud=$gameHud panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} confidence=${cp.confidence}/${hp.confidence}/${mp.confidence}/${target.confidence} rgb=$probe"
         return VisionResult(obs,diagnostics)
     }
 }
