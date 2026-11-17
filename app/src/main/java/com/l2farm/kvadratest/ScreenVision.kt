@@ -75,7 +75,23 @@ object ScreenVision {
         val hp=if(panel) hpRaw else null
         val mp=if(panel) mpRaw else null
         val obs=FarmObservation(hp,mp,target,if(target) targetHp else null)
-        val diag="viewport=$left..$right panel=$panel hpHits=$hpHits mpHits=$mpHits cpHits=$cpHits targetHits=$targetHits targetHP=${obs.targetHp ?: "?"}%"
+        val probes=listOf(85,113,141,165).joinToString(";") { yy ->
+            val xx=x(300)
+            val c=rgb(xx,y(yy))
+            "$yy:"+(c?.joinToString(",") ?: "null")
+        }
+        // Broad scan helps distinguish a wrong row from incorrect channel interpretation.
+        fun countAt(yy:Int, match:(IntArray)->Boolean):Int {
+            var hits=0
+            for(xx in x(100)..x(510) step 4) {
+                if(rgb(xx,y(yy))?.let(match)==true) hits++
+            }
+            return hits
+        }
+        val scans=listOf(70,85,100,113,125,141,155,170).joinToString(";") { yy ->
+            "$yy:${countAt(yy,::red)}/${countAt(yy,::blue)}"
+        }
+        val diag="viewport=$left..$right panel=$panel hpHits=$hpHits mpHits=$mpHits cpHits=$cpHits targetHits=$targetHits targetHP=${obs.targetHp ?: "?"}% rgb=$probes scanRB=$scans"
         return VisionResult(obs,diag)
     }
 }
