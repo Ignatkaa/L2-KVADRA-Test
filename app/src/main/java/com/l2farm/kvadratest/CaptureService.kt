@@ -40,7 +40,7 @@ class CaptureService : Service() {
         else intent?.getParcelableExtra(RESULT_DATA) as? Intent
         if (code != Activity.RESULT_OK || data == null) { stopSelf(); return START_NOT_STICKY }
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v0.4")
+            .setContentTitle("L2 KVADRA Test v0.5")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -63,9 +63,10 @@ class CaptureService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastFrame >= 750) {
                         lastFrame = now
-                        val o = ScreenVision.inspect(img)
+                        val vision = ScreenVision.inspect(img)
+                        val o = vision.observation
                         frames++
-                        val message = "Кадр #$frames ${img.width}x${img.height} | HP=${o.hp ?: "?"}% MP=${o.mp ?: "?"}% | Цель=${o.targetVisible} | ${ArcherDecisionEngine.advise(o)}"
+                        val message = "Кадр #$frames ${img.width}x${img.height} | HP=${o.hp ?: "?"}% MP=${o.mp ?: "?"}% | Цель=${o.targetVisible} | ${ArcherDecisionEngine.advise(o)} | ${vision.diagnostics}"
                         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                             .putString("last",message)
                             .putLong("timestamp",now)
