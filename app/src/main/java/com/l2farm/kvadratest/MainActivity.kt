@@ -26,10 +26,10 @@ class MainActivity : Activity() {
             layout.addView(b)
             return b
         }
-        layout.addView(TextView(this).apply { text = "L2 KVADRA Test v0.2\nУстройство: ${Build.MANUFACTURER} ${Build.MODEL}\nAndroid API: ${Build.VERSION.SDK_INT}"; textSize = 20f })
+        layout.addView(TextView(this).apply { text = "L2 KVADRA Test v0.3\nУстройство: ${Build.MANUFACTURER} ${Build.MODEL}\nAndroid API: ${Build.VERSION.SDK_INT}"; textSize = 20f })
         status = TextView(this).apply { text = "Проверки ещё не запускались"; textSize = 17f; setPadding(0,24,0,24) }
         layout.addView(status)
-        button("1. Разрешить захват экрана") {
+        button("1. Проверить кадр экрана (можно в L2Meta)") {
             val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             startActivityForResult(mgr.createScreenCaptureIntent(), requestCode)
         }
