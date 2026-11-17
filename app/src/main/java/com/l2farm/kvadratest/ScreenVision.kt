@@ -41,18 +41,41 @@ object ScreenVision {
         val mp=measure(151,383,142,::blue)
         // Calibrated on the game PNG: full target bar x=755..1078; fill starts near 756.
         val target=measure(755,1078,72,::red)
-        val panel=gameHud && hp.percent!=null && mp.percent!=null
+        // Numeric HUD text is authoritative; the coloured fill can lag during combat.
+        // Never use an unverified animated HP bar to drive a healing recommendation.
+        val cpText = if (gameHud) HudNumericReader.read(HudStatRow.CP) { x,y ->
+            rgb(sx(x),sy(y))
+        } else null
+        val hpText = if (gameHud) HudNumericReader.read(HudStatRow.HP) { x,y ->
+            rgb(sx(x),sy(y))
+        } else null
+        val mpText = if (gameHud) HudNumericReader.read(HudStatRow.MP) { x,y ->
+            rgb(sx(x),sy(y))
+        } else null
+        val panel=gameHud && (hp.percent!=null || hpText!=null) &&
+            (mp.percent!=null || mpText!=null)
         val targetVisible=gameHud && listOf(807 to 22,1210 to 23,1205 to 99)
             .count { (x,y) -> darkAt(x,y) }>=2
         val targetPercent=if(targetVisible) target.percent else null
-        val obs=FarmObservation(if(panel) hp.percent else null,
-            if(panel) mp.percent else null,targetVisible,
-            targetPercent)
+        val obs=FarmObservation(
+            if(panel) hpText?.percent else null,
+            if(panel) mpText?.percent else null,
+            targetVisible,
+            targetPercent
+        )
         val probe=listOf(92,117,142).joinToString(";") { yy ->
             val c=rgb(sx(180),sy(yy))
             "$yy:"+(c?.joinToString(",") ?: "?")
         }
-        val diagnostics="gameHud=$gameHud panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} confidence=${cp.confidence}/${hp.confidence}/${mp.confidence}/${target.confidence} scanY=${cp.scanY}/${hp.scanY}/${mp.scanY}/${target.scanY} rgb=$probe"
+        fun shown(v: HudNumericValue?): String =
+            if(v==null) "?" else "${v.current}/${v.maximum}"
+        val diagnostics="gameHud=$gameHud panel=$panel " +
+            "cp=${cpText?.percent ?: "?"} hp=${hpText?.percent ?: "?"} mp=${mpText?.percent ?: "?"} target=${target.percent ?: "?"} " +
+            "cpText=${shown(cpText)} hpText=${shown(hpText)} mpText=${shown(mpText)} " +
+            "cpBar=${cp.percent ?: "?"} hpBar=${hp.percent ?: "?"} mpBar=${mp.percent ?: "?"} " +
+            "hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} " +
+            "runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} " +
+            "scanY=${cp.scanY}/${hp.scanY}/${mp.scanY}/${target.scanY} rgb=$probe"
         return VisionResult(obs,diagnostics)
     }
 }
