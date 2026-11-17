@@ -20,7 +20,7 @@ class MainActivity : Activity() {
             return b
         }
         layout.addView(TextView(this).apply {
-            text="L2 KVADRA Test v0.4 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nНаблюдение, без касаний по игре"
+            text="L2 KVADRA Test v0.5 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nНаблюдение, без касаний по игре"
             textSize=19f
         })
         status=TextView(this).apply { text="Ожидание проверки"; textSize=16f; setPadding(0,20,0,20) }
