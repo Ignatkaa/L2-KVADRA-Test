@@ -32,6 +32,7 @@ class CaptureService : Service() {
     private var startedAt = 0L
     private var snapshotSaved = false
     private var stopping = false
+    private var skippedUiFrames = 0
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -50,7 +51,7 @@ class CaptureService : Service() {
         startedAt = System.currentTimeMillis()
         snapshotSaved = false
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v0.9")
+            .setContentTitle("L2 KVADRA Test v1.0")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -77,6 +78,23 @@ class CaptureService : Service() {
                             snapshotSaved = true
                             saveSnapshot(img)
                         }
+                        val plane = img.planes[0]
+                        val buf = plane.buffer
+                        fun pale(xx:Int, yy:Int):Boolean {
+                            val i=yy.toLong()*plane.rowStride+xx.toLong()*plane.pixelStride
+                            if(i<0 || i+2>=buf.limit()) return false
+                            val k=i.toInt()
+                            val r=buf.get(k).toInt() and 255
+                            val g=buf.get(k+1).toInt() and 255
+                            val bl=buf.get(k+2).toInt() and 255
+                            return r>205 && g>205 && bl>205 && maxOf(r,g,bl)-minOf(r,g,bl)<12
+                        }
+                        val ownUi=listOf(0.25,0.45,0.65,0.85).count {
+                            pale((img.width*0.5).toInt(),(img.height*it).toInt())
+                        }>=3
+                        if(ownUi) {
+                            skippedUiFrames++
+                        } else {
                         val vision = ScreenVision.inspect(img)
                         val o = vision.observation
                         frames++
@@ -84,7 +102,9 @@ class CaptureService : Service() {
                         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                             .putString("last",message)
                             .putLong("timestamp",now)
+                            .putInt("skippedUiFrames",skippedUiFrames)
                             .apply()
+                        }
                     }
                 } catch (e: Exception) {
                     getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
