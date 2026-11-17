@@ -51,7 +51,7 @@ class CaptureService : Service() {
         startedAt = System.currentTimeMillis()
         snapshotSaved = false
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.0")
+            .setContentTitle("L2 KVADRA Test v1.1")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -74,10 +74,6 @@ class CaptureService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastFrame >= 750) {
                         lastFrame = now
-                        if (!snapshotSaved && now - startedAt >= 12000L) {
-                            snapshotSaved = true
-                            saveSnapshot(img)
-                        }
                         val plane = img.planes[0]
                         val buf = plane.buffer
                         fun pale(xx:Int, yy:Int):Boolean {
@@ -95,6 +91,10 @@ class CaptureService : Service() {
                         if(ownUi) {
                             skippedUiFrames++
                         } else {
+                        if (!snapshotSaved && now - startedAt >= 12000L) {
+                            snapshotSaved = true
+                            saveSnapshot(img)
+                        }
                         val vision = ScreenVision.inspect(img)
                         val o = vision.observation
                         frames++
