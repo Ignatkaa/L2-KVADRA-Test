@@ -51,8 +51,14 @@ class CaptureService : Service() {
         if (code != Activity.RESULT_OK || data == null) { stopSelf(); return START_NOT_STICKY }
         startedAt = System.currentTimeMillis()
         snapshotSaved = false
+        frames = 0
+        skippedUiFrames = 0
+        rejectedFrames = 0
+        getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+            .remove("last").remove("snapshot").remove("snapshotFrame")
+            .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.2")
+            .setContentTitle("L2 KVADRA Test v1.3.1")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -99,13 +105,13 @@ class CaptureService : Service() {
                                 .putInt("rejectedFrames",rejectedFrames).apply()
                             return@setOnImageAvailableListener
                         }
-                        if (!snapshotSaved && now - startedAt >= 12000L) {
-                            snapshotSaved = true
-                            saveSnapshot(img)
-                        }
                         val o = vision.observation
                         frames++
                         val message = "Кадр #$frames ${img.width}x${img.height} | HP=${o.hp ?: "?"}% MP=${o.mp ?: "?"}% | Цель=${o.targetVisible} | ${ArcherDecisionEngine.advise(o)} | ${vision.diagnostics}"
+                        if (!snapshotSaved && now - startedAt >= 12000L) {
+                            snapshotSaved = true
+                            saveSnapshot(img, message, now)
+                        }
                         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                             .putString("last",message)
                             .putLong("timestamp",now)
@@ -128,7 +134,7 @@ class CaptureService : Service() {
         }
         return START_NOT_STICKY
     }
-    private fun saveSnapshot(image: android.media.Image) {
+    private fun saveSnapshot(image: android.media.Image, diagnostic: String, capturedAt: Long) {
         var bitmap: Bitmap? = null
         try {
             val plane = image.planes[0]
@@ -149,7 +155,7 @@ class CaptureService : Service() {
             }
             bitmap = Bitmap.createBitmap(bytes,w,h,Bitmap.Config.ARGB_8888)
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME,"L2Meta_capture_${System.currentTimeMillis()}.png")
+                put(MediaStore.Images.Media.DISPLAY_NAME,"L2Meta_capture_${capturedAt}.png")
                 put(MediaStore.Images.Media.MIME_TYPE,"image/png")
                 put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/L2KVADRA")
                 put(MediaStore.Images.Media.IS_PENDING,1)
@@ -164,7 +170,10 @@ class CaptureService : Service() {
                 values.put(MediaStore.Images.Media.IS_PENDING,0)
                 contentResolver.update(uri,values,null,null)
                 getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
-                    .putString("snapshot","Сохранён PNG: Pictures/L2KVADRA").apply()
+                    .putString("snapshot","Сохранён PNG: Pictures/L2KVADRA/L2Meta_capture_${capturedAt}.png")
+                    .putString("snapshotFrame",diagnostic)
+                    .putLong("snapshotTime",capturedAt)
+                    .apply()
             } catch(e:Exception) {
                 contentResolver.delete(uri,null,null)
                 throw e
