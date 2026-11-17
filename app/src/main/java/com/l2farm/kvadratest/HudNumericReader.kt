@@ -35,6 +35,12 @@ object HudNumericReader {
         '9' to intArrayOf(0x1e0,0x7fc,0xe07,0xe07,0xe07,0x803,0xe07,0xf9f,0xf9f,0x7ff,0x007,0x007,0x004,0x004,0x03c,0x7e0)
     )
 
+    // Alternate glyph shape of '6' inside the 3063 HP maximum.
+    private val alternativeSix = intArrayOf(
+        0x018,0x1fc,0x700,0x700,0x600,0xe00,0xef8,0xffc,
+        0xffc,0xe07,0x803,0x803,0xe07,0xe07,0x707,0x1fc
+    )
+
     /**
      * [rgb] returns the RGB components of a pixel in reference 2000x1110 coordinates.
      * Returns null if a character is missing, ambiguous or current/max is implausible.
@@ -89,7 +95,12 @@ object HudNumericReader {
                 rows[y] = bits
             }
             val scores = glyphs.map { (c, tmpl) ->
-                c to (0 until 16).sumOf { i -> Integer.bitCount(rows[i] xor tmpl[i]) }
+                val primary = (0 until 16).sumOf { i -> Integer.bitCount(rows[i] xor tmpl[i]) }
+                val distance = if(c == '6') minOf(
+                    primary,
+                    (0 until 16).sumOf { i -> Integer.bitCount(rows[i] xor alternativeSix[i]) }
+                ) else primary
+                c to distance
             }.sortedBy { it.second }
             val best = scores[0]
             if (best.second > 62 || scores[1].second - best.second < 3) return null
