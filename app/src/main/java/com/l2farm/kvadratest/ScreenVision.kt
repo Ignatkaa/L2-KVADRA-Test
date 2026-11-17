@@ -24,44 +24,11 @@ object ScreenVision {
         fun red(c:IntArray)=c[0]>125 && c[0]>c[1]*1.45 && c[0]>c[2]*1.3
         fun blue(c:IntArray)=c[2]>125 && c[2]>c[0]*1.4 && c[2]>c[1]*1.18
         fun gold(c:IntArray)=c[0]>125 && c[1]>75 && c[0]>c[2]*1.5 && c[1]>c[2]*1.4
-        data class Bar(val percent:Int?,val hits:Int,val continuity:Int, val confidence:Int)
-        fun bar(x1:Int,x2:Int,yy:Int,predicate:(IntArray)->Boolean):Bar {
-            val start=sx(x1)
-            val end=sx(x2)
-            val step=(w/2000).coerceAtLeast(1)
-            var hits=0
-            var longest=0
-            var current=0
-            var bestEnd=-1
-            var bestStart=-1
-            var runStart=-1
-            var samples=0
-            for(xx in start..end step step) {
-                samples++
-                val ok=listOf(-2,0,2).count { dy ->
-                    rgb(xx,sy(yy)+dy)?.let(predicate)==true
-                }>=2
-                if(ok) {
-                    hits++
-                    if(current==0) runStart=xx
-                    current++
-                    if(current>longest) {
-                        longest=current
-                        bestStart=runStart
-                        bestEnd=xx
-                    }
-                } else current=0
+        val step=(w/2000).coerceAtLeast(1)
+        fun measure(x1:Int,x2:Int,centerY:Int,predicate:(IntArray)->Boolean):BarMeasurement =
+            BarAnalyzer.scan(sx(x1),sx(x2),sy(centerY),step) { x,y ->
+                rgb(x,y)?.let(predicate)==true
             }
-            val total=samples.coerceAtLeast(1)
-            // Ignore isolated UI pixels and unrelated red/gold/blue elements.
-            val minRun=(total/20).coerceAtLeast(3)
-            val nearLeft=bestStart>=0 && bestStart-start <= (end-start)/12
-            if(longest<minRun || !nearLeft) return Bar(null,hits,longest,0)
-            val pct=((bestEnd-start)*100.0/(end-start).coerceAtLeast(1))
-                .toInt().coerceIn(0,100)
-            val confidence=(longest*100/total).coerceIn(0,100)
-            return Bar(pct,hits,longest,confidence)
-        }
         // x=126..383 are the full player bars in the actual PNG (not 154..460).
         fun darkAt(x:Int,y:Int):Boolean {
             val c=rgb(sx(x),sy(y)) ?: return false
@@ -69,15 +36,15 @@ object ScreenVision {
         }
         val gameHud=listOf(95 to 38,340 to 40,820 to 38,1195 to 40,1540 to 42)
             .count { (x,y) -> darkAt(x,y) }>=3
-        val cp=bar(128,382,92,::gold)
-        val hp=bar(128,382,117,::red)
-        val mp=bar(128,382,142,::blue)
-        // Target bar extends from 816 to 1084; 35% HP appears near x=910.
-        val target=bar(817,1082,68,::red)
-        val panel=gameHud && cp.percent!=null && hp.percent!=null && mp.percent!=null
+        val cp=measure(151,383,92,::gold)
+        val hp=measure(151,383,117,::red)
+        val mp=measure(151,383,142,::blue)
+        // Calibrated on the game PNG: full target bar x=755..1078; fill starts near 756.
+        val target=measure(755,1078,72,::red)
+        val panel=gameHud && hp.percent!=null && mp.percent!=null
         val targetVisible=gameHud && listOf(807 to 22,1210 to 23,1205 to 99)
             .count { (x,y) -> darkAt(x,y) }>=2
-        val targetPercent=if(targetVisible) (target.percent ?: 0) else null
+        val targetPercent=if(targetVisible) target.percent else null
         val obs=FarmObservation(if(panel) hp.percent else null,
             if(panel) mp.percent else null,targetVisible,
             targetPercent)
@@ -85,7 +52,7 @@ object ScreenVision {
             val c=rgb(sx(180),sy(yy))
             "$yy:"+(c?.joinToString(",") ?: "?")
         }
-        val diagnostics="gameHud=$gameHud panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} confidence=${cp.confidence}/${hp.confidence}/${mp.confidence}/${target.confidence} rgb=$probe"
+        val diagnostics="gameHud=$gameHud panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} confidence=${cp.confidence}/${hp.confidence}/${mp.confidence}/${target.confidence} scanY=${cp.scanY}/${hp.scanY}/${mp.scanY}/${target.scanY} rgb=$probe"
         return VisionResult(obs,diagnostics)
     }
 }
