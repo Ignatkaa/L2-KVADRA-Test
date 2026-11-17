@@ -15,7 +15,7 @@ def compare(log: str, tolerance: float = 3.0) -> int:
         return 1
     failures = 0
     for key, expected in REFERENCE.items():
-        match = re.search(r"(?<![A-Za-z])" + key + r"=(\\d+|\\?)", log)
+        match = re.search(r"(?<![A-Za-z])" + key + r"=(\d+|\?)", log)
         if not match or match.group(1) == "?":
             print(f"FAIL {key}: missing")
             failures += 1
