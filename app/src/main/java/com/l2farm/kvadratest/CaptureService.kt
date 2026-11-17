@@ -50,7 +50,7 @@ class CaptureService : Service() {
         startedAt = System.currentTimeMillis()
         snapshotSaved = false
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v0.8")
+            .setContentTitle("L2 KVADRA Test v0.9")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
