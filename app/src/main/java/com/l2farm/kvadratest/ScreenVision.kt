@@ -56,7 +56,7 @@ object ScreenVision {
         val (mpHits,mpTotal)=score(121,bestMode,::isMp)
         // Require multiple colored pixels before treating a bar as detected.
         val hp=if(hpHits>=8 && hpTotal>0) hpHits*100/hpTotal else null
-        val mp=if(mpHits>=8 && mpTotal>0) mpHits*100/mpTotal else null
+        val mp=if(mpHits>=8 && mpTotal>0 && hpHits>=8) mpHits*100/mpTotal else null
         var red=0
         for(x in 600..825 step 10) {
             val c=sample(x,58,bestMode)
@@ -73,7 +73,7 @@ object ScreenVision {
                 if(maxOf(c[0],c[1],c[2])<30) dark++
             }
         }
-        val diagnostics="mode=$bestMode hpPixels=$hpHits/$hpTotal mpPixels=$mpHits/$mpTotal redTarget=$red colors=$colorful/$checked dark=$dark/$checked"
+        val diagnostics="mode=$bestMode hpPixels=$hpHits/$hpTotal mpPixels=$mpHits/$mpTotal redTarget=$red colors=$colorful/$checked dark=$dark/$checked panelValidated=${hpHits>=8}"
         return VisionResult(FarmObservation(hp,mp,red>=6,null),diagnostics)
     }
 }
