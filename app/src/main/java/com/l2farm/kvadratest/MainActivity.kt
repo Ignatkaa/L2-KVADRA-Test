@@ -5,66 +5,62 @@ import android.content.*
 import android.media.projection.MediaProjectionManager
 import android.os.*
 import android.provider.Settings
-import android.view.Gravity
-import android.view.View
 import android.widget.*
 
 class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var testButton: Button
     private val requestCode = 100
-    private val receiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            status.text = intent?.getStringExtra("message") ?: "Нет результата"
-        }
-    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(32,32,32,32) }
-        fun button(label: String, action: (Button) -> Unit): Button {
-            val b = Button(this).apply { text = label; setOnClickListener { action(this) } }
+        val layout = LinearLayout(this).apply { orientation=LinearLayout.VERTICAL; setPadding(32,32,32,32) }
+        fun button(label:String, action:()->Unit): Button {
+            val b=Button(this).apply { text=label; setOnClickListener { action() } }
             layout.addView(b)
             return b
         }
-        layout.addView(TextView(this).apply { text = "L2 KVADRA Test v0.3\nУстройство: ${Build.MANUFACTURER} ${Build.MODEL}\nAndroid API: ${Build.VERSION.SDK_INT}"; textSize = 20f })
-        status = TextView(this).apply { text = "Проверки ещё не запускались"; textSize = 17f; setPadding(0,24,0,24) }
+        layout.addView(TextView(this).apply {
+            text="L2 KVADRA Test v0.4 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nНаблюдение, без касаний по игре"
+            textSize=19f
+        })
+        status=TextView(this).apply { text="Ожидание проверки"; textSize=16f; setPadding(0,20,0,20) }
         layout.addView(status)
-        button("1. Проверить кадр экрана (можно в L2Meta)") {
-            val mgr = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            startActivityForResult(mgr.createScreenCaptureIntent(), requestCode)
+        button("1. Начать наблюдение (разрешить весь экран)") {
+            val mgr=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            startActivityForResult(mgr.createScreenCaptureIntent(),requestCode)
         }
-        button("2. Открыть специальные возможности") {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        button("2. Показать последний результат") { refresh() }
+        button("3. Остановить наблюдение") {
+            startService(Intent(this,CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
+            refresh()
         }
-        testButton = button("3. Тест касания этой кнопки") {
-            if (TestAccessibilityService.instance == null) {
-                status.text = "Сначала включите службу L2 KVADRA Test в специальных возможностях"
-            } else {
-                val coords = IntArray(2)
-                testButton.getLocationOnScreen(coords)
-                val x = coords[0] + testButton.width / 2f
-                val y = coords[1] + testButton.height / 2f
-                TestAccessibilityService.instance?.tap(x, y) { ok ->
-                    runOnUiThread { status.text = if (ok) "Программный жест выполнен" else "Жест отменён" }
+        button("4. Специальные возможности") { startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)) }
+        testButton=button("5. Тест касания только этой кнопки") {
+            val service=TestAccessibilityService.instance
+            if (service==null) status.text="Служба специальных возможностей выключена"
+            else {
+                val xy=IntArray(2)
+                testButton.getLocationOnScreen(xy)
+                service.tap(xy[0]+testButton.width/2f,xy[1]+testButton.height/2f) { ok ->
+                    runOnUiThread { status.text=if(ok) "Жест выполнен" else "Жест отменён" }
                 }
             }
         }
         setContentView(ScrollView(this).apply { addView(layout) })
     }
-    override fun onStart() {
-        super.onStart()
-        val filter = IntentFilter(CaptureService.ACTION_RESULT)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(receiver, filter, RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") registerReceiver(receiver, filter)
+    private fun refresh() {
+        val p=getSharedPreferences("diagnostics",MODE_PRIVATE)
+        status.text=p.getString("last","Кадров пока нет") ?: "Кадров пока нет"
     }
-    override fun onStop() { unregisterReceiver(receiver); super.onStop() }
+    override fun onResume() { super.onResume(); refresh() }
     @Deprecated("Deprecated in Android")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == this.requestCode && resultCode == RESULT_OK && data != null) {
-            val i = Intent(this, CaptureService::class.java).putExtra(CaptureService.RESULT_CODE, resultCode).putExtra(CaptureService.RESULT_DATA, data)
-            startForegroundService(i)
-            status.text = "Ожидание кадра..."
-        } else status.text = "Захват отменён"
+    override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
+        super.onActivityResult(requestCode,resultCode,data)
+        if(requestCode==this.requestCode && resultCode==RESULT_OK && data!=null) {
+            startForegroundService(Intent(this,CaptureService::class.java)
+                .putExtra(CaptureService.RESULT_CODE,resultCode)
+                .putExtra(CaptureService.RESULT_DATA,data))
+            status.text="Наблюдение запущено. Переключитесь в L2Meta, затем вернитесь за результатом."
+        } else status.text="Разрешение на захват не предоставлено"
     }
 }
