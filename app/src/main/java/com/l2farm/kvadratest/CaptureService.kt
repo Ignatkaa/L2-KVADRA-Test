@@ -43,9 +43,27 @@ class CaptureService : Service() {
             }, android.os.Handler(mainLooper))
             reader.setOnImageAvailableListener({ source ->
                 val image = source.acquireLatestImage() ?: return@setOnImageAvailableListener
+                val plane = image.planes[0]
+                val buffer = plane.buffer
+                val stride = plane.rowStride
+                val pixelStride = plane.pixelStride
+                var colored = 0
+                var samples = 0
+                for (y in 0 until height step (height / 24).coerceAtLeast(1)) {
+                    for (x in 0 until width step (width / 40).coerceAtLeast(1)) {
+                        val index = y * stride + x * pixelStride
+                        if (index + 2 < buffer.limit()) {
+                            val r = buffer.get(index).toInt() and 255
+                            val g = buffer.get(index + 1).toInt() and 255
+                            val b = buffer.get(index + 2).toInt() and 255
+                            if (maxOf(r,g,b) - minOf(r,g,b) > 30) colored++
+                            samples++
+                        }
+                    }
+                }
                 image.close()
                 if (finished.compareAndSet(false, true)) {
-                    sendBroadcast(Intent(ACTION_RESULT).setPackage(packageName).putExtra("message", "Захват экрана: кадр получен"))
+                    sendBroadcast(Intent(ACTION_RESULT).setPackage(packageName).putExtra("message", "Кадр: ${width}x${height}; цветных точек: ${colored}/${samples}"))
                     projection.stop()
                 }
             }, android.os.Handler(mainLooper))
