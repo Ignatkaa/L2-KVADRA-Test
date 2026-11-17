@@ -2,7 +2,7 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'fix/vision-v1-3']
 permissions:
   contents: read
 jobs:
