@@ -50,7 +50,7 @@ class MainActivity : Activity() {
     }
     private fun refresh() {
         val p=getSharedPreferences("diagnostics",MODE_PRIVATE)
-        status.text=(p.getString("last","Кадров пока нет") ?: "Кадров пока нет") + "\\n" + (p.getString("snapshot","PNG ещё не сохранён") ?: "")
+        status.text=(p.getString("last","Кадров пока нет") ?: "Кадров пока нет") + "\n" + (p.getString("snapshot","PNG ещё не сохранён") ?: "")
     }
     override fun onResume() { super.onResume(); refresh() }
     @Deprecated("Deprecated in Android")
