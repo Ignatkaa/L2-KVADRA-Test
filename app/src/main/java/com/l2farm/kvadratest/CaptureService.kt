@@ -58,7 +58,7 @@ class CaptureService : Service() {
             .remove("last").remove("snapshot").remove("snapshotFrame")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.3.1")
+            .setContentTitle("L2 KVADRA Test v1.4")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
