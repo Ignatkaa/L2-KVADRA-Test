@@ -20,7 +20,7 @@ class MainActivity : Activity() {
             return b
         }
         layout.addView(TextView(this).apply {
-            text="L2 KVADRA Test v0.6 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nНаблюдение, без касаний по игре"
+            text="L2 KVADRA Test v0.7 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nНаблюдение, без касаний по игре"
             textSize=19f
         })
         status=TextView(this).apply { text="Ожидание проверки"; textSize=16f; setPadding(0,20,0,20) }
@@ -29,7 +29,7 @@ class MainActivity : Activity() {
             val mgr=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             startActivityForResult(mgr.createScreenCaptureIntent(),requestCode)
         }
-        button("2. Показать последний результат") { refresh() }
+        button("2. Показать результат и путь PNG") { refresh() }
         button("3. Остановить наблюдение") {
             startService(Intent(this,CaptureService::class.java).setAction(CaptureService.ACTION_STOP))
             refresh()
@@ -50,7 +50,7 @@ class MainActivity : Activity() {
     }
     private fun refresh() {
         val p=getSharedPreferences("diagnostics",MODE_PRIVATE)
-        status.text=p.getString("last","Кадров пока нет") ?: "Кадров пока нет"
+        status.text=(p.getString("last","Кадров пока нет") ?: "Кадров пока нет") + "\\n" + (p.getString("snapshot","PNG ещё не сохранён") ?: "")
     }
     override fun onResume() { super.onResume(); refresh() }
     @Deprecated("Deprecated in Android")
