@@ -51,21 +51,29 @@ object ScreenVision {
             return Bar(pct,hits,longest)
         }
         // x=126..383 are the full player bars in the actual PNG (not 154..460).
+        fun darkAt(x:Int,y:Int):Boolean {
+            val c=rgb(sx(x),sy(y)) ?: return false
+            return (c.maxOrNull() ?: 255)<110
+        }
+        val gameHud=listOf(95 to 38,340 to 40,820 to 38,1195 to 40,1540 to 42)
+            .count { (x,y) -> darkAt(x,y) }>=3
         val cp=bar(128,382,92,::gold)
         val hp=bar(128,382,117,::red)
         val mp=bar(128,382,142,::blue)
         // Target bar extends from 816 to 1084; 35% HP appears near x=910.
         val target=bar(817,1082,68,::red)
-        val panel=cp.percent!=null && hp.percent!=null && mp.percent!=null
-        val targetVisible=target.percent!=null
+        val panel=gameHud && cp.percent!=null && hp.percent!=null && mp.percent!=null
+        val targetVisible=gameHud && listOf(807 to 22,1210 to 23,1205 to 99)
+            .count { (x,y) -> darkAt(x,y) }>=2
+        val targetPercent=if(targetVisible) (target.percent ?: 0) else null
         val obs=FarmObservation(if(panel) hp.percent else null,
             if(panel) mp.percent else null,targetVisible,
-            if(targetVisible) target.percent else null)
+            targetPercent)
         val probe=listOf(92,117,142).joinToString(";") { yy ->
             val c=rgb(sx(180),sy(yy))
             "$yy:"+(c?.joinToString(",") ?: "?")
         }
-        val diagnostics="panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} rgb=$probe"
+        val diagnostics="gameHud=$gameHud panel=$panel cp=${cp.percent ?: "?"} hp=${hp.percent ?: "?"} mp=${mp.percent ?: "?"} target=${target.percent ?: "?"} hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} rgb=$probe"
         return VisionResult(obs,diagnostics)
     }
 }
