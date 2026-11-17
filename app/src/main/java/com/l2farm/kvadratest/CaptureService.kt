@@ -4,6 +4,11 @@ import android.app.*
 import android.content.*
 import android.hardware.display.DisplayManager
 import android.media.ImageReader
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
+import android.content.ContentValues
+import android.provider.MediaStore
+import java.nio.ByteBuffer
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.*
@@ -17,12 +22,15 @@ class CaptureService : Service() {
         const val RESULT_DATA = "result_data"
         const val ACTION_STOP = "com.l2farm.kvadratest.STOP"
         const val CHANNEL = "capture"
+        const val ACTION_SNAPSHOT = "com.l2farm.kvadratest.SNAPSHOT"
     }
     private var projection: MediaProjection? = null
     private var display: android.hardware.display.VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var lastFrame = 0L
     private var frames = 0
+    private var startedAt = 0L
+    private var snapshotSaved = false
     private var stopping = false
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
@@ -39,8 +47,10 @@ class CaptureService : Service() {
             intent?.getParcelableExtra(RESULT_DATA,Intent::class.java)
         else intent?.getParcelableExtra(RESULT_DATA) as? Intent
         if (code != Activity.RESULT_OK || data == null) { stopSelf(); return START_NOT_STICKY }
+        startedAt = System.currentTimeMillis()
+        snapshotSaved = false
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v0.6")
+            .setContentTitle("L2 KVADRA Test v0.7")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -63,6 +73,10 @@ class CaptureService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastFrame >= 750) {
                         lastFrame = now
+                        if (!snapshotSaved && now - startedAt >= 12000L) {
+                            snapshotSaved = true
+                            saveSnapshot(img)
+                        }
                         val vision = ScreenVision.inspect(img)
                         val o = vision.observation
                         frames++
@@ -85,6 +99,52 @@ class CaptureService : Service() {
             stopSelf()
         }
         return START_NOT_STICKY
+    }
+    private fun saveSnapshot(image: android.media.Image) {
+        var bitmap: Bitmap? = null
+        try {
+            val plane = image.planes[0]
+            val w = image.width
+            val h = image.height
+            val stride = plane.rowStride
+            val pixelStride = plane.pixelStride
+            val bytes = IntArray(w * h)
+            val buffer = plane.buffer
+            for (y in 0 until h) {
+                for (x in 0 until w) {
+                    val i = y * stride + x * pixelStride
+                    val r = buffer.get(i).toInt() and 255
+                    val g = buffer.get(i+1).toInt() and 255
+                    val b = buffer.get(i+2).toInt() and 255
+                    bytes[y*w+x] = android.graphics.Color.rgb(r,g,b)
+                }
+            }
+            bitmap = Bitmap.createBitmap(bytes,w,h,Bitmap.Config.ARGB_8888)
+            val values = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME,"L2Meta_capture_${System.currentTimeMillis()}.png")
+                put(MediaStore.Images.Media.MIME_TYPE,"image/png")
+                put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/L2KVADRA")
+                put(MediaStore.Images.Media.IS_PENDING,1)
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,values)
+                ?: throw IllegalStateException("MediaStore insert failed")
+            try {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    if (!bitmap.compress(Bitmap.CompressFormat.PNG,100,out)) throw IllegalStateException("PNG encode failed")
+                } ?: throw IllegalStateException("Cannot open image output")
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING,0)
+                contentResolver.update(uri,values,null,null)
+                getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+                    .putString("snapshot","Сохранён PNG: Pictures/L2KVADRA").apply()
+            } catch(e:Exception) {
+                contentResolver.delete(uri,null,null)
+                throw e
+            }
+        } catch(e:Exception) {
+            getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+                .putString("snapshot","Ошибка PNG: ${e.javaClass.simpleName}: ${e.message}").apply()
+        } finally { bitmap?.recycle() }
     }
     override fun onDestroy() {
         if (!stopping) {
