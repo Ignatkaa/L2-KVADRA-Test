@@ -33,6 +33,7 @@ class CaptureService : Service() {
     private var snapshotSaved = false
     private var stopping = false
     private var skippedUiFrames = 0
+    private var rejectedFrames = 0
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -51,7 +52,7 @@ class CaptureService : Service() {
         startedAt = System.currentTimeMillis()
         snapshotSaved = false
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.1")
+            .setContentTitle("L2 KVADRA Test v1.2")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -91,11 +92,17 @@ class CaptureService : Service() {
                         if(ownUi) {
                             skippedUiFrames++
                         } else {
+                        val vision = ScreenVision.inspect(img)
+                        if (!vision.diagnostics.startsWith("gameHud=true")) {
+                            rejectedFrames++
+                            getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+                                .putInt("rejectedFrames",rejectedFrames).apply()
+                            return@setOnImageAvailableListener
+                        }
                         if (!snapshotSaved && now - startedAt >= 12000L) {
                             snapshotSaved = true
                             saveSnapshot(img)
                         }
-                        val vision = ScreenVision.inspect(img)
                         val o = vision.observation
                         frames++
                         val message = "Кадр #$frames ${img.width}x${img.height} | HP=${o.hp ?: "?"}% MP=${o.mp ?: "?"}% | Цель=${o.targetVisible} | ${ArcherDecisionEngine.advise(o)} | ${vision.diagnostics}"
@@ -103,6 +110,7 @@ class CaptureService : Service() {
                             .putString("last",message)
                             .putLong("timestamp",now)
                             .putInt("skippedUiFrames",skippedUiFrames)
+                            .putInt("rejectedFrames",rejectedFrames)
                             .apply()
                         }
                     }
