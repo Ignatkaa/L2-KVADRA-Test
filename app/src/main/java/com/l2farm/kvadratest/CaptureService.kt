@@ -63,11 +63,12 @@ class CaptureService : Service() {
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
             .remove("testTapAction").remove("testTapDeadline")
+            .remove("testTapBlockedReason")
             .putBoolean("captureActive",false)
             .putString("testTapStatus","Одиночный тест касания не запрошен")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.6")
+            .setContentTitle("L2 KVADRA Test v1.6.1")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -106,9 +107,19 @@ class CaptureService : Service() {
                         }>=3
                         if(ownUi) {
                             skippedUiFrames++
+                            val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+                            if (prefs.contains("testTapAction")) prefs.edit()
+                                .putString("testTapBlockedReason",
+                                    "На экране Hawkeye — переключитесь в L2Meta")
+                                .apply()
                         } else {
                         val vision = ScreenVision.inspect(img)
-                        if (!vision.diagnostics.startsWith("gameHud=true")) {
+                        if (!vision.gameHud) {
+                            val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+                            if (prefs.contains("testTapAction")) prefs.edit()
+                                .putString("testTapBlockedReason",
+                                    "Игровой HUD не найден на экране")
+                                .apply()
                             rejectedFrames++
                             getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                                 .putInt("rejectedFrames",rejectedFrames).apply()
@@ -179,21 +190,32 @@ class CaptureService : Service() {
         val elapsed = SystemClock.elapsedRealtime()
         val deadline = prefs.getLong("testTapDeadline",0L)
         if (deadline <= elapsed) {
+            val lastReason = prefs.getString("testTapBlockedReason","Не выполнены условия") 
             prefs.edit().remove("testTapAction").remove("testTapDeadline")
-                .putString("testTapStatus","Время ожидания теста истекло; касаний не было").apply()
+                .putString("testTapStatus","Тест не выполнен: время истекло. " + lastReason).apply()
+            return
+        }
+        val eligibility = ManualTapPolicy.check(
+            action, vision.gameHud, vision.controls, decision
+        )
+        if (!eligibility.allowed) {
+            // Always show why no touch was sent, including a missing control detector.
+            val lastReason = prefs.getString("testTapBlockedReason",null)
+            if (lastReason != eligibility.reason) prefs.edit()
+                .putString("testTapBlockedReason",eligibility.reason).apply()
+            return
+        }
+        if (elapsed - lastManualTapAt < 5000L) {
+            prefs.edit().putString("testTapBlockedReason",
+                "Защитная задержка между ручными тестами").apply()
             return
         }
         val controls = vision.controls ?: return
-        if (!vision.gameHud) return
-        val eligible = when (action) {
-            "TARGET" -> decision.action == TargetAction.SEARCH
-            "ATTACK" -> decision.action == TargetAction.ATTACK
-            else -> false
-        }
-        if (!eligible || elapsed - lastManualTapAt < 5000L) return
         val service = TestAccessibilityService.instance ?: run {
             prefs.edit().remove("testTapAction").remove("testTapDeadline")
-                .putString("testTapStatus","AccessibilityService выключена; касаний не было").apply()
+                .putString("testTapStatus","AccessibilityService выключена; касаний не было")
+                .putString("testTapBlockedReason","Служба специальных возможностей выключена")
+                .apply()
             return
         }
         val coordinate = if (action == "TARGET") controls.target else controls.attack
@@ -202,6 +224,7 @@ class CaptureService : Service() {
         // Commit before dispatch: if more frames arrive, the same request cannot tap twice.
         val cleared = prefs.edit()
             .remove("testTapAction").remove("testTapDeadline")
+            .remove("testTapBlockedReason")
             .putString("testTapStatus","Однократное касание $action отправлено: " +
                 "(${coordinate.x},${coordinate.y}), раскладка=${controls.layout}")
             .commit()
