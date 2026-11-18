@@ -9,6 +9,15 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.view.Gravity
+import android.view.View
+import android.widget.Spinner
+import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.provider.Settings
 import android.view.ViewGroup
 import android.widget.Button
@@ -24,17 +33,47 @@ import android.widget.Toast
 class MainActivity : Activity() {
     private lateinit var quickStatus: TextView
     private lateinit var details: TextView
+    private lateinit var stats: TextView
+    private lateinit var overlayPermission: Button
     private lateinit var accessibilityTestButton: Button
     private val requestCode = 100
+    private val navy = Color.rgb(11, 20, 37)
+    private val panel = Color.rgb(23, 37, 58)
+    private val muted = Color.rgb(160, 184, 211)
+    private val cyan = Color.rgb(30, 182, 202)
+    private val pale = Color.rgb(235, 246, 251)
+
+    private fun rounded(color: Int, border: Int = color, radius: Float = 15f) =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = radius * resources.displayMetrics.density
+            setStroke((resources.displayMetrics.density).toInt().coerceAtLeast(1), border)
+        }
 
     private fun smallButton(row: LinearLayout, label: String, action: () -> Unit): Button {
+        val isStop = label.contains("СТОП") || label == "ОСТАНОВИТЬ"
+        val isStart = label.contains("ПУСК АВТОБОЯ")
+        val btnColor = when {
+            isStop -> Color.rgb(176, 48, 60)
+            isStart -> cyan
+            else -> Color.rgb(36, 61, 86)
+        }
         val button = Button(this).apply {
             text = label
-            textSize = 13f
+            textSize = 12f
+            isAllCaps = false
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(if(isStart) navy else Color.WHITE)
+            background = rounded(btnColor)
+            minHeight = (44f * resources.displayMetrics.density).toInt()
+            setPadding(5,6,5,6)
             setOnClickListener { action() }
         }
+        val margin = (3 * resources.displayMetrics.density).toInt()
         row.addView(button, LinearLayout.LayoutParams(0,
-            ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            (50 * resources.displayMetrics.density).toInt(), 1f).apply {
+                setMargins(margin,margin,margin,margin)
+            })
         return button
     }
 
@@ -50,21 +89,85 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.statusBarColor = navy
+        window.navigationBarColor = navy
+        window.decorView.systemUiVisibility = 0
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(20, 10, 20, 10)
+            setBackgroundColor(navy)
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad/2, pad, pad/2)
         }
 
         root.addView(TextView(this).apply {
-            text = "L2 KVADRA Test v1.8.2 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
-            textSize = 18f
+            text = "HAWKEYE    /    L2 KVADRA  v1.9"
+            setTextColor(pale)
+            textSize = 23f
+            typeface = Typeface.DEFAULT_BOLD
+        })
+        root.addView(TextView(this).apply {
+            text = "INTERLUDE  •  ${Build.MODEL}  •  API ${Build.VERSION.SDK_INT}  •  ЦЕЛЬ / АТАКА"
+            setTextColor(muted)
+            textSize = 11f
         })
         quickStatus = TextView(this).apply {
-            textSize = 16f
-            setPadding(0, 6, 0, 6)
+            textSize = 14f
+            setTextColor(pale)
+            setPadding(18, 12, 18, 12)
+            background = rounded(panel,Color.rgb(43, 73, 100))
             text = "Тест кнопок пока не запускался"
         }
         root.addView(quickStatus)
+        stats = TextView(this).apply {
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.rgb(117, 224, 224))
+            setPadding(8, 9, 8, 6)
+        }
+        root.addView(stats)
+
+        val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+        val options = newRow(root)
+        val settingsLabel = TextView(this).apply {
+            text = "НАСТРОЙКИ БОЯ"
+            setTextColor(muted)
+            textSize = 12f
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        options.addView(settingsLabel,LinearLayout.LayoutParams(0,
+            (46 * resources.displayMetrics.density).toInt(),0.8f))
+
+        fun spinner(values: List<String>, initial: Int, onSelect: (Int)->Unit): Spinner {
+            return Spinner(this).apply {
+                adapter = ArrayAdapter(this@MainActivity,
+                    android.R.layout.simple_spinner_dropdown_item,values)
+                background = rounded(Color.rgb(231, 242, 250))
+                setSelection(initial.coerceIn(0,values.lastIndex))
+                onItemSelectedListener = object: AdapterView.OnItemSelectedListener {
+                    override fun onNothingSelected(parent: AdapterView<*>?) {}
+                    override fun onItemSelected(
+                        parent: AdapterView<*>?, view: View?, position: Int, id: Long
+                    ) { onSelect(position) }
+                }
+            }
+        }
+        val durationValues = CombatSettings.DURATIONS
+        val durationIndex = durationValues.indexOf(prefs.getInt("durationMinutes",3))
+            .coerceAtLeast(0)
+        options.addView(spinner(durationValues.map { "$it мин" },durationIndex) {
+            prefs.edit().putInt("durationMinutes",durationValues[it]).apply()
+        },LinearLayout.LayoutParams(0,
+            (44 * resources.displayMetrics.density).toInt(),1f))
+        val intervals = CombatSettings.INTERVALS_MS
+        val intervalIndex = intervals.indexOf(prefs.getLong("tapIntervalMs",3500L))
+            .coerceAtLeast(0)
+        options.addView(spinner(intervals.map {
+            "${if (it == 3500L) "3,5" else (it/1000).toString()} сек"
+        },intervalIndex) {
+            prefs.edit().putLong("tapIntervalMs",intervals[it]).apply()
+        },LinearLayout.LayoutParams(0,
+            (44 * resources.displayMetrics.density).toInt(),1f))
+
 
         // Important controls are ALWAYS visible. Only the long log scrolls.
         val controlRow = newRow(root)
@@ -80,7 +183,7 @@ class MainActivity : Activity() {
         }
 
         val autoRow = newRow(root)
-        smallButton(autoRow, "ПУСК АВТОБОЯ · 3 МИН") { confirmAutoStart() }
+        smallButton(autoRow, "ПУСК АВТОБОЯ") { confirmAutoStart() }
         smallButton(autoRow, "СТОП АВТОБОЯ") { stopAutoCombat() }
 
         val testRow = newRow(root)
@@ -88,27 +191,39 @@ class MainActivity : Activity() {
         smallButton(testRow, "ОДНО КАСАНИЕ «АТАКА»") { armManualTap("ATTACK") }
         smallButton(testRow, "ОТМЕНА ТЕСТА") { confirmCancellation() }
 
+        val overlayRow = newRow(root)
+        overlayPermission = smallButton(
+            overlayRow, "РАЗРЕШИТЬ ПЛАВАЮЩИЙ СТОП"
+        ) {
+            if (!Settings.canDrawOverlays(this)) {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:$packageName")))
+            } else Toast.makeText(this,"Плавающий СТОП уже разрешён",
+                Toast.LENGTH_SHORT).show()
+        }
         root.addView(TextView(this).apply {
-            text = "Автобой работает максимум 3 минуты, до 12 жестов. " +
-                "Нажатие СТОП или кнопка уведомления прекращает цикл. " +
-                "Если HP цели не читается, автобой ставится на паузу."
-            textSize = 13f
-            setPadding(0, 5, 0, 5)
+            text = "АВАРИЙНЫЙ СТОП: кнопка в приложении, уведомление Android или " +
+                "плавающая кнопка (если разрешена). Пауза при потере распознавания."
+            setTextColor(muted)
+            textSize = 11f
+            setPadding(4, 5, 4, 5)
         })
         root.addView(TextView(this).apply {
-            text = "Тест запускается только вручную. После нажатия перейдите в L2Meta за 30 секунд. " +
-                "«Атака» требует подтверждённую живую цель; после жеста проверяем снижение её HP."
-            textSize = 13f
-            setPadding(0, 6, 0, 8)
+            text = "ОДИНОЧНЫЙ ТЕСТ: для «Атака» нужна подтверждённая живая цель."
+            setTextColor(muted)
+            textSize = 11f
+            setPadding(4, 4, 4, 6)
         })
 
         val scroll = ScrollView(this)
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            background = rounded(panel)
         }
         details = TextView(this).apply {
-            textSize = 15f
-            setPadding(0, 6, 0, 16)
+            textSize = 13f
+            setTextColor(pale)
+            setPadding(16, 14, 16, 16)
         }
         body.addView(details)
 
@@ -159,14 +274,18 @@ class MainActivity : Activity() {
             quickStatus.text = "Включи L2 KVADRA в специальных возможностях"
             return
         }
+        val settings = CombatSettings.safe(
+            prefs.getInt("durationMinutes",3),prefs.getLong("tapIntervalMs",3500L)
+        )
         AlertDialog.Builder(this)
-            .setTitle("Запустить управляемый бой?")
+            .setTitle("Запустить Hawkeye?")
             .setMessage(
-                "Hawkeye будет нажимать «Цель» и один раз «Атака» для каждой " +
-                "подтверждённой цели, затем отслеживать HP. Максимум 3 минуты, " +
-                "12 жестов или 6 потерянных целей. " +
-                "При неоднозначном распознавании — пауза. " +
-                "Остановить можно из приложения или уведомления."
+                "Продолжительность: ${settings.durationMinutes} мин. " +
+                "Интервал касаний: ${settings.tapIntervalMs / 1000.0} сек. " +
+                "Лимит жестов: ${settings.maxGestures}. " +
+                "Выбор цели → одна атака → контроль HP → следующая цель. " +
+                "При ошибках — защитная пауза. " +
+                "СТОП — на экране, в уведомлении и поверх игры при разрешении."
             )
             .setPositiveButton("ПУСК") { _,_ ->
                 startService(Intent(this,CaptureService::class.java)
@@ -241,12 +360,21 @@ class MainActivity : Activity() {
         val autoStatus = p.getString("autoStatus","Автобой выключен")
         val autoGestures = p.getInt("autoGestures",0)
         val autoLost = p.getInt("autoTargetsLost",0)
+        val maxGestures = p.getInt("autoGestureLimit",12)
         quickStatus.text = "$capture$armed\nАВТОБОЙ: $autoStatus" +
-            "\nЖестов: $autoGestures/12 · потеряно целей: $autoLost/6" +
+            "\nЖестов: $autoGestures/$maxGestures · потеряно целей: $autoLost/6" +
             "\n$testStatus" +
             (if (reason != null) "\nПричина: $reason" else "") +
             (if (attackFeedback != null) "\nПроверка атаки: $attackFeedback" else "")
 
+        stats.text = "ВРЕМЯ ${p.getLong("autoElapsedSeconds",0L)}с   |   " +
+            "ЦЕЛИ ${p.getInt("autoSelections",0)}   |   " +
+            "ПОИСК ${p.getInt("autoTargetTaps",0)}   |   " +
+            "АТАКИ ${p.getInt("autoAttackTaps",0)}   |   " +
+            "УРОН ${p.getInt("autoDamageObservations",0)}"
+        if (::overlayPermission.isInitialized) overlayPermission.text =
+            if(Settings.canDrawOverlays(this)) "ПЛАВАЮЩИЙ СТОП: РАЗРЕШЁН"
+            else "РАЗРЕШИТЬ ПЛАВАЮЩИЙ СТОП"
         val last = p.getString("last", "Кадров пока нет") ?: "Кадров пока нет"
         val saved = p.getString("snapshot", "PNG ещё не сохранён")
             ?: "PNG ещё не сохранён"
