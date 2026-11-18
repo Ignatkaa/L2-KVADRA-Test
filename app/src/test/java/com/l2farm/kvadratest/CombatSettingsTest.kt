@@ -5,9 +5,11 @@ import org.junit.Test
 
 class CombatSettingsTest {
     @Test fun validRangeIsOneToOneHundredTwentyMinutesAndTwoToTenSeconds() {
-        assertEquals(CombatSettings(1,2000L),CombatSettings.safe(-1,50L))
+        assertEquals(CombatSettings(1,500L),CombatSettings.safe(-1,50L))
         assertEquals(CombatSettings(120,10000L),CombatSettings.safe(999,50_000L))
         assertEquals(CombatSettings(120,2000L),CombatSettings.safe(120,2000L))
+        assertEquals(CombatSettings(120,500L),CombatSettings.safe(120,500L))
+        assertEquals(CombatSettings(15,1000L),CombatSettings.safe(15,1000L))
         assertEquals(CombatSettings(1,5000L),CombatSettings.safe(1,5000L))
         assertEquals(CombatSettings(3,3500L),CombatSettings.safe(3,3500L))
         assertEquals(CombatSettings(4,2500L),CombatSettings.safe(4,2850L))
@@ -17,6 +19,8 @@ class CombatSettingsTest {
         assertEquals(31,CombatSettings.safe(1,2000L).maxGestures)
         assertEquals(52,CombatSettings().maxGestures)
         assertEquals(3601,CombatSettings.safe(120,2000L).maxGestures)
+        assertEquals(14401,CombatSettings.safe(120,500L).maxGestures)
+        assertEquals(7201,CombatSettings.safe(120,1000L).maxGestures)
         assertEquals(721,CombatSettings.safe(120,10000L).maxGestures)
     }
 
@@ -31,6 +35,39 @@ class CombatSettingsTest {
         assertEquals(CombatMode.PAUSED,controller.mode)
         assertEquals(7200L,controller.statistics(100000000L).elapsedSeconds)
         assertEquals(3601,controller.statistics(7201000L).gestureLimit)
+    }
+
+    @Test fun halfSecondTargetSearchNeverViolatesConfiguredMinimum() {
+        val controller=AutoCombatController()
+        controller.start(1000L,CombatSettings.safe(5,500L))
+        controller.onFrame(1250L,true,true,false,null,TargetAction.SEARCH)
+        val first=controller.onFrame(1500L,true,true,false,null,TargetAction.SEARCH)
+        assertEquals(CombatTap.TARGET,first.tap)
+        controller.onGestureResult(1600L,CombatTap.TARGET,true,null)
+        // WAIT_TARGET observes a missed target; it does not immediately tap.
+        assertNull(controller.onFrame(
+            1850L,true,true,false,null,TargetAction.SEARCH).tap)
+        assertNull(controller.onFrame(
+            2100L,true,true,false,null,TargetAction.SEARCH).tap)
+        assertEquals(CombatTap.TARGET,controller.onFrame(
+            2350L,true,true,false,null,TargetAction.SEARCH).tap)
+    }
+
+    @Test fun oneSecondSettingIsAcceptedAndRateLimited() {
+        val settings=CombatSettings.safe(5,1000L)
+        assertEquals(1000L,settings.tapIntervalMs)
+        val controller=AutoCombatController()
+        controller.start(1000L,settings)
+        controller.onFrame(1250L,true,true,false,null,TargetAction.SEARCH)
+        val first=controller.onFrame(1600L,true,true,false,null,TargetAction.SEARCH)
+        assertEquals(CombatTap.TARGET,first.tap)
+        controller.onGestureResult(1750L,CombatTap.TARGET,true,null)
+        assertNull(controller.onFrame(
+            2200L,true,true,false,null,TargetAction.SEARCH).tap)
+        assertNull(controller.onFrame(
+            2800L,true,true,false,null,TargetAction.SEARCH).tap)
+        assertEquals(CombatTap.TARGET,controller.onFrame(
+            3150L,true,true,false,null,TargetAction.SEARCH).tap)
     }
 
     @Test fun customIntervalPreventsPrematureSecondTap() {
