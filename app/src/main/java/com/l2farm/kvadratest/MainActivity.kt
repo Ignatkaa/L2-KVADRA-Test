@@ -56,7 +56,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "L2 KVADRA Test v1.6.3 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
+            text = "L2 KVADRA Test v1.7 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
             textSize = 18f
         })
         quickStatus = TextView(this).apply {
@@ -86,7 +86,7 @@ class MainActivity : Activity() {
 
         root.addView(TextView(this).apply {
             text = "Тест запускается только вручную. После нажатия перейдите в L2Meta за 30 секунд. " +
-                "«Атака» требует подтверждённую живую цель."
+                "«Атака» требует подтверждённую живую цель; после жеста проверяем снижение её HP."
             textSize = 13f
             setPadding(0, 6, 0, 8)
         })
@@ -170,9 +170,9 @@ class MainActivity : Activity() {
             return
         }
         val label = if (action == "TARGET") "Цель" else "Атака"
-        prefs.edit()
-            .remove("testTapBlockedReason")
-            .putString("testTapAction", action)
+        val editor = prefs.edit().remove("testTapBlockedReason")
+        if (action == "ATTACK") editor.remove("attackFeedback")
+        editor.putString("testTapAction", action)
             .putLong("testTapDeadline", SystemClock.elapsedRealtime() + 30000L)
             .putString("testTapStatus",
                 "ЗАПРОШЕНО ОДНО касание «$label»: перейдите в L2Meta за 30 секунд")
@@ -188,8 +188,10 @@ class MainActivity : Activity() {
         val capture = if (p.getBoolean("captureActive", false)) "Захват активен"
             else "Захват выключен"
         val armed = if (p.contains("testTapAction")) " · ОЖИДАЕТ КАСАНИЯ" else ""
+        val attackFeedback = p.getString("attackFeedback",null)
         quickStatus.text = "$capture$armed\n$testStatus" +
-            (if (reason != null) "\nПричина: $reason" else "")
+            (if (reason != null) "\nПричина: $reason" else "") +
+            (if (attackFeedback != null) "\nПроверка атаки: $attackFeedback" else "")
 
         val last = p.getString("last", "Кадров пока нет") ?: "Кадров пока нет"
         val saved = p.getString("snapshot", "PNG ещё не сохранён")
