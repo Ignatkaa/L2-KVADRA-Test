@@ -78,21 +78,42 @@ class AutoCombatControllerTest {
         assertEquals(CombatMode.OFF,c.mode)
     }
 
-    @Test fun repeatedTargetSelectionsAreBounded() {
-        val c=AutoCombatController()
-        c.start(0L)
-        for (i in 0..2) {
-            val base=i*12000L
+    @Test fun moreThanThreeFailedTargetAttemptsKeepSearching() {
+        val c = AutoCombatController()
+        c.start(1000L,CombatSettings.safe(5,2000L))
+        // Simulate twelve failed searches without a selected target panel.
+        for (i in 0 until 12) {
+            val base = 1000L + i*4000L
             step(c,base+800L)
-            val t=step(c,base+1600L)
-            assertEquals(CombatTap.TARGET,t.tap)
+            val result=step(c,base+1600L)
+            assertEquals("attempt $i",CombatTap.TARGET,result.tap)
             c.onGestureResult(base+1700L,CombatTap.TARGET,true,null)
-            step(c,base+8500L)
+            assertTrue("search $i should not pause",c.running)
         }
-        step(c,37000L)
-        val result=step(c,38000L)
-        assertNull(result.tap)
-        assertEquals(CombatMode.PAUSED,c.mode)
+        assertEquals(12,c.sentGestures)
+        assertEquals(12,c.statistics(51000L).targetTaps)
+        assertNotEquals(CombatMode.PAUSED,c.mode)
+    }
+
+    @Test fun moreThanSixLostPanelsDoNotStopCombat() {
+        val c = AutoCombatController()
+        c.start(1000L,CombatSettings.safe(5,2000L))
+        for (i in 0 until 8) {
+            val base=1000L+i*20000L
+            step(c,base+750L,true,99,action=TargetAction.ACQUIRING)
+            step(c,base+1500L,true,99)
+            val hit=step(c,base+2400L,true,99)
+            assertEquals(CombatTap.ATTACK,hit.tap)
+            c.onGestureResult(base+2600L,CombatTap.ATTACK,true,99)
+            step(c,base+3500L,true,92)
+            step(c,base+4300L,true,90)
+            step(c,base+5200L,false)
+            val lost=step(c,base+6000L,false)
+            assertEquals("lost panel $i",CombatMode.SEARCH,lost.mode)
+            assertTrue(c.running)
+        }
+        assertEquals(8,c.targetsLost)
+        assertEquals(8,c.statistics(175000L).attackTaps)
     }
 
     @Test fun ownUiPausesAfterTwelveSeconds() {
