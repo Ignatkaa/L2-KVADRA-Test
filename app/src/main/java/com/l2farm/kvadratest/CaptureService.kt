@@ -41,12 +41,16 @@ class CaptureService : Service() {
     private val targetHistory = TargetTransitionHistory()
     private val attackImpact = AttackImpactMonitor()
     private val autoCombat = AutoCombatController()
+    private lateinit var stopOverlay: CombatStopOverlay
     private val autoHistory = java.util.ArrayDeque<String>()
     private var lastAutoStatus = ""
     private var lastManualTapAt = 0L
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
+        stopOverlay = CombatStopOverlay(this) {
+            stopAutoCombat("Автобой остановлен плавающей кнопкой СТОП")
+        }
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel(CHANNEL,"L2 screen diagnostics",NotificationManager.IMPORTANCE_LOW))
     }
@@ -68,7 +72,11 @@ class CaptureService : Service() {
                     "Автобой не запущен: нет захвата экрана или AccessibilityService")
                     .putBoolean("autoRunning",false).apply()
             } else {
-                autoCombat.start(SystemClock.elapsedRealtime())
+                val settings = CombatSettings.safe(
+                    prefs.getInt("durationMinutes",3),
+                    prefs.getLong("tapIntervalMs",3500L)
+                )
+                autoCombat.start(SystemClock.elapsedRealtime(),settings)
                 failureSnapshotSaved = false
                 prefs.edit().remove("failureSnapshot")
                     .remove("failureSnapshotFrame").apply()
@@ -77,7 +85,12 @@ class CaptureService : Service() {
                 lastAutoStatus = ""
                 prefs.edit().remove("testTapAction").remove("testTapDeadline")
                     .remove("autoLastGesture")
-                    .putString("autoHistory","").apply()
+                    .putString("autoHistory","")
+            .putString("overlayStatus","Не запущен")
+                    .putString("overlayStatus",if(stopOverlay.available)
+                        "Плавающий СТОП доступен" else
+                        "Разрешение на плавающий СТОП не выдано; используй уведомление")
+                    .apply()
                 persistAutoStatus(SystemClock.elapsedRealtime())
             }
             return START_NOT_STICKY
@@ -122,7 +135,7 @@ class CaptureService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.8.2")
+            .setContentTitle("L2 KVADRA Test v1.9")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .addAction(Notification.Action.Builder(
@@ -277,6 +290,11 @@ class CaptureService : Service() {
     private fun persistAutoStatus(now: Long) {
         val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
         val current = "${autoCombat.mode}: ${autoCombat.status}"
+        if (autoCombat.running) {
+            val shown = stopOverlay.show()
+            if (!shown) prefs.edit().putString("overlayStatus",
+                "Поверх игры кнопка недоступна; СТОП есть в уведомлении").apply()
+        } else stopOverlay.hide()
         if (current != lastAutoStatus) {
             lastAutoStatus = current
             val entry = "t+${(now - startedAtElapsed).coerceAtLeast(0L)/1000}s " +
@@ -284,7 +302,14 @@ class CaptureService : Service() {
             autoHistory.addLast(entry)
             while (autoHistory.size > 24) autoHistory.removeFirst()
         }
+        val stats = autoCombat.statistics(now)
         prefs.edit()
+            .putLong("autoElapsedSeconds",stats.elapsedSeconds)
+            .putInt("autoTargetTaps",stats.targetTaps)
+            .putInt("autoAttackTaps",stats.attackTaps)
+            .putInt("autoSelections",stats.confirmedSelections)
+            .putInt("autoDamageObservations",stats.damageObservations)
+            .putInt("autoGestureLimit",stats.gestureLimit)
             .putBoolean("autoRunning",autoCombat.running)
             .putString("autoMode",autoCombat.mode.name)
             .putString("autoStatus",current)
@@ -521,6 +546,7 @@ class CaptureService : Service() {
     }
     override fun onDestroy() {
         stopAutoCombat("Захват остановлен — автобой выключен")
+        if (::stopOverlay.isInitialized) stopOverlay.hide()
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("testTapAction").remove("testTapDeadline")
             .putBoolean("captureActive",false).apply()
