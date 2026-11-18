@@ -21,7 +21,8 @@ object TargetBarDetector {
     fun detect(
         width: Int,
         height: Int,
-        matchesRed: (Int, Int) -> Boolean
+        matchesRed: (Int, Int) -> Boolean,
+        preferredPosition: TargetBarPosition? = null
     ): TargetHpReading {
         require(width > 0 && height > 0)
         fun x(n: Int): Int = (n.toDouble() * width / 2000.0)
@@ -34,6 +35,8 @@ object TargetBarDetector {
         val leftValid = primary.percent != null
         val rightValid = secondary.percent != null
         val chooseLeft = when {
+            preferredPosition == TargetBarPosition.LEFT_755 -> true
+            preferredPosition == TargetBarPosition.RIGHT_980 -> false
             leftValid && !rightValid -> true
             !leftValid && rightValid -> false
             leftValid && rightValid ->
