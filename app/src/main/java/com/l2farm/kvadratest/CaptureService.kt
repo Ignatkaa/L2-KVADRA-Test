@@ -34,6 +34,7 @@ class CaptureService : Service() {
     private var stopping = false
     private var skippedUiFrames = 0
     private var rejectedFrames = 0
+    private val targetTracker = TargetCombatTracker()
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -54,11 +55,12 @@ class CaptureService : Service() {
         frames = 0
         skippedUiFrames = 0
         rejectedFrames = 0
+        targetTracker.reset()
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("last").remove("snapshot").remove("snapshotFrame")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.4")
+            .setContentTitle("L2 KVADRA Test v1.5")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -106,9 +108,20 @@ class CaptureService : Service() {
                             return@setOnImageAvailableListener
                         }
                         val o = vision.observation
+                        val decision = targetTracker.update(
+                            gameHud = vision.gameHud,
+                            panelVisible = o.targetVisible,
+                            targetHp = o.targetHp
+                        )
                         frames++
-                        val message = "Кадр #$frames ${img.width}x${img.height} | HP=${o.hp ?: "?"}% MP=${o.mp ?: "?"}% | Цель=${o.targetVisible} | ${ArcherDecisionEngine.advise(o)} | ${vision.diagnostics}"
-                        if (!snapshotSaved && now - startedAt >= 12000L) {
+                        val message = "Кадр #$frames ${img.width}x${img.height} | " +
+                            "Цель=${if(o.targetVisible) "выбрана" else "нет"} | " +
+                            "HP цели=${o.targetHp?.toString() ?: "?"}% | " +
+                            "Состояние=${decision.action} | " +
+                            "${decision.recommendation} | ${vision.diagnostics}"
+                        if (!snapshotSaved && now - startedAt >= 12000L &&
+                            (decision.action == TargetAction.ATTACK ||
+                                now - startedAt >= 25000L)) {
                             snapshotSaved = true
                             saveSnapshot(img, message, now)
                         }
