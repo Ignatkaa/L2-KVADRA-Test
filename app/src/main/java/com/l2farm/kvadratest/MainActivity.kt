@@ -100,7 +100,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "HAWKEYE    /    L2 KVADRA  v2.0"
+            text = "HAWKEYE    /    L2 KVADRA  v2.1"
             setTextColor(pale)
             textSize = 23f
             typeface = Typeface.DEFAULT_BOLD
@@ -176,11 +176,11 @@ class MainActivity : Activity() {
             { p -> prefs.edit().putInt("durationMinutes",p+1).apply() }
         )
         settingColumn(
-            "ИНТЕРВАЛ · 2—10 СЕК",
-            ((currentSettings.tapIntervalMs-2000L)/500L).toInt(),16,
-            { p -> "${(2000L+p*500L)/1000L}," +
-                (if ((2000L+p*500L)%1000L==0L) "0" else "5") + " сек" },
-            { p -> prefs.edit().putLong("tapIntervalMs",2000L+p*500L).apply() }
+            "ИНТЕРВАЛ · 0,5—10 СЕК",
+            ((currentSettings.tapIntervalMs-500L)/500L).toInt(),19,
+            { p -> "${(500L+p*500L)/1000L}," +
+                (if ((500L+p*500L)%1000L==0L) "0" else "5") + " сек" },
+            { p -> prefs.edit().putLong("tapIntervalMs",500L+p*500L).apply() }
         )
 
         // Important controls are ALWAYS visible. Only the long log scrolls.
@@ -207,17 +207,17 @@ class MainActivity : Activity() {
 
         val overlayRow = newRow(root)
         overlayPermission = smallButton(
-            overlayRow, "РАЗРЕШИТЬ ПЛАВАЮЩИЙ СТОП"
+            overlayRow, "РАЗРЕШИТЬ ПЛАВАЮЩИЕ СТАРТ / СТОП"
         ) {
             if (!Settings.canDrawOverlays(this)) {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:$packageName")))
-            } else Toast.makeText(this,"Плавающий СТОП уже разрешён",
+            } else Toast.makeText(this,"Плавающие СТАРТ / СТОП уже разрешены",
                 Toast.LENGTH_SHORT).show()
         }
         root.addView(TextView(this).apply {
-            text = "АВАРИЙНЫЙ СТОП: кнопка в приложении, уведомление Android или " +
-                "плавающая кнопка (если разрешена). Пауза при потере распознавания."
+            text = "ПЛАВАЮЩЕЕ УПРАВЛЕНИЕ: СТАРТ без перехода в Hawkeye, " +
+                "СТОП во время фарма. При потере распознавания — защитная пауза."
             setTextColor(muted)
             textSize = 11f
             setPadding(4, 5, 4, 5)
@@ -388,8 +388,8 @@ class MainActivity : Activity() {
             "АТАКИ ${p.getInt("autoAttackTaps",0)}   |   " +
             "УРОН ${p.getInt("autoDamageObservations",0)}"
         if (::overlayPermission.isInitialized) overlayPermission.text =
-            if(Settings.canDrawOverlays(this)) "ПЛАВАЮЩИЙ СТОП: РАЗРЕШЁН"
-            else "РАЗРЕШИТЬ ПЛАВАЮЩИЙ СТОП"
+            if(Settings.canDrawOverlays(this)) "ПЛАВАЮЩИЕ СТАРТ / СТОП: РАЗРЕШЕНЫ"
+            else "РАЗРЕШИТЬ ПЛАВАЮЩИЕ СТАРТ / СТОП"
         val last = p.getString("last", "Кадров пока нет") ?: "Кадров пока нет"
         val saved = p.getString("snapshot", "PNG ещё не сохранён")
             ?: "PNG ещё не сохранён"
