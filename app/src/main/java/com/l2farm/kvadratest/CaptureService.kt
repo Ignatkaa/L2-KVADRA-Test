@@ -33,6 +33,7 @@ class CaptureService : Service() {
     private var frames = 0
     private var startedAt = 0L
     private var snapshotSaved = false
+    private var failureSnapshotSaved = false
     private var stopping = false
     private var skippedUiFrames = 0
     private var rejectedFrames = 0
@@ -68,6 +69,9 @@ class CaptureService : Service() {
                     .putBoolean("autoRunning",false).apply()
             } else {
                 autoCombat.start(SystemClock.elapsedRealtime())
+                failureSnapshotSaved = false
+                prefs.edit().remove("failureSnapshot")
+                    .remove("failureSnapshotFrame").apply()
                 targetTracker.reset()
                 autoHistory.clear()
                 lastAutoStatus = ""
@@ -88,6 +92,7 @@ class CaptureService : Service() {
         startedAt = System.currentTimeMillis()
         startedAtElapsed = SystemClock.elapsedRealtime()
         snapshotSaved = false
+        failureSnapshotSaved = false
         frames = 0
         skippedUiFrames = 0
         rejectedFrames = 0
@@ -100,6 +105,7 @@ class CaptureService : Service() {
         lastManualTapAt = 0L
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
+            .remove("failureSnapshot").remove("failureSnapshotFrame")
             .remove("attackFeedback")
             .putBoolean("autoRunning",false)
             .putString("autoMode","OFF")
@@ -116,7 +122,7 @@ class CaptureService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.8")
+            .setContentTitle("L2 KVADRA Test v1.8.1")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .addAction(Notification.Action.Builder(
@@ -220,6 +226,14 @@ class CaptureService : Service() {
                             "HP цели=${o.targetHp?.toString() ?: "?"}% | " +
                             "Состояние=${decision.action} | " +
                             "${decision.recommendation} | ${vision.diagnostics}"
+                        if (!failureSnapshotSaved &&
+                            autoCombat.mode == CombatMode.PAUSED) {
+                            failureSnapshotSaved = true
+                            saveSnapshot(
+                                img, message + " | АВТОБОЙ: " + autoCombat.status,
+                                now, failure = true
+                            )
+                        }
                         if (!snapshotSaved && now - startedAt >= 12000L &&
                             (decision.action == TargetAction.ATTACK ||
                                 now - startedAt >= 25000L)) {
@@ -442,7 +456,10 @@ class CaptureService : Service() {
         }
     }
 
-    private fun saveSnapshot(image: android.media.Image, diagnostic: String, capturedAt: Long) {
+    private fun saveSnapshot(
+        image: android.media.Image, diagnostic: String,
+        capturedAt: Long, failure: Boolean = false
+    ) {
         var bitmap: Bitmap? = null
         try {
             val plane = image.planes[0]
@@ -462,8 +479,10 @@ class CaptureService : Service() {
                 }
             }
             bitmap = Bitmap.createBitmap(bytes,w,h,Bitmap.Config.ARGB_8888)
+            val fileName = if (failure) "L2Meta_failure_${capturedAt}.png"
+                else "L2Meta_capture_${capturedAt}.png"
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME,"L2Meta_capture_${capturedAt}.png")
+                put(MediaStore.Images.Media.DISPLAY_NAME,fileName)
                 put(MediaStore.Images.Media.MIME_TYPE,"image/png")
                 put(MediaStore.Images.Media.RELATIVE_PATH,"Pictures/L2KVADRA")
                 put(MediaStore.Images.Media.IS_PENDING,1)
@@ -478,9 +497,15 @@ class CaptureService : Service() {
                 values.put(MediaStore.Images.Media.IS_PENDING,0)
                 contentResolver.update(uri,values,null,null)
                 getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
-                    .putString("snapshot","Сохранён PNG: Pictures/L2KVADRA/L2Meta_capture_${capturedAt}.png")
-                    .putString("snapshotFrame",diagnostic)
-                    .putLong("snapshotTime",capturedAt)
+                    .putString(
+                        if (failure) "failureSnapshot" else "snapshot",
+                        "Сохранён PNG: Pictures/L2KVADRA/$fileName"
+                    )
+                    .putString(
+                        if (failure) "failureSnapshotFrame" else "snapshotFrame",
+                        diagnostic
+                    )
+                    .putLong(if (failure) "failureTime" else "snapshotTime",capturedAt)
                     .apply()
             } catch(e:Exception) {
                 contentResolver.delete(uri,null,null)
@@ -488,7 +513,10 @@ class CaptureService : Service() {
             }
         } catch(e:Exception) {
             getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
-                .putString("snapshot","Ошибка PNG: ${e.javaClass.simpleName}: ${e.message}").apply()
+                .putString(
+                    if (failure) "failureSnapshot" else "snapshot",
+                    "Ошибка PNG: ${e.javaClass.simpleName}: ${e.message}"
+                ).apply()
         } finally { bitmap?.recycle() }
     }
     override fun onDestroy() {
