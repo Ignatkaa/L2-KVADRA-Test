@@ -48,9 +48,20 @@ class CaptureService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
-        stopOverlay = CombatStopOverlay(this) {
-            stopAutoCombat("Автобой остановлен плавающей кнопкой СТОП")
-        }
+        stopOverlay = CombatStopOverlay(
+            this,
+            onStart = {
+                // An explicit press on the floating START is treated exactly as
+                // pressing the app's START control, with previously saved settings.
+                if (projection != null && !autoCombat.running) {
+                    startService(Intent(this,CaptureService::class.java)
+                        .setAction(ACTION_AUTO_START))
+                }
+            },
+            onStop = {
+                stopAutoCombat("Автобой остановлен плавающей кнопкой СТОП")
+            }
+        )
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(
             NotificationChannel(CHANNEL,"L2 screen diagnostics",NotificationManager.IMPORTANCE_LOW))
     }
@@ -65,6 +76,7 @@ class CaptureService : Service() {
             return START_NOT_STICKY
         }
         if (intent?.action == ACTION_AUTO_START) {
+            if (autoCombat.running) return START_NOT_STICKY
             val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
             if (projection == null || !prefs.getBoolean("captureActive",false) ||
                 TestAccessibilityService.instance == null) {
@@ -86,10 +98,9 @@ class CaptureService : Service() {
                 prefs.edit().remove("testTapAction").remove("testTapDeadline")
                     .remove("autoLastGesture")
                     .putString("autoHistory","")
-            .putString("overlayStatus","Не запущен")
                     .putString("overlayStatus",if(stopOverlay.available)
-                        "Плавающий СТОП доступен" else
-                        "Разрешение на плавающий СТОП не выдано; используй уведомление")
+                        "Плавающие СТАРТ / СТОП доступны" else
+                        "Плавающие кнопки недоступны; используй приложение и уведомление")
                     .apply()
                 persistAutoStatus(SystemClock.elapsedRealtime())
             }
@@ -135,7 +146,7 @@ class CaptureService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v2.0")
+            .setContentTitle("L2 KVADRA Test v2.1")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .addAction(Notification.Action.Builder(
@@ -158,7 +169,12 @@ class CaptureService : Service() {
                 val img = source.acquireLatestImage() ?: return@setOnImageAvailableListener
                 try {
                     val now = System.currentTimeMillis()
-                    if (now - lastFrame >= 750) {
+                    // Two stable observations can now fit within ~500ms when
+                    // the user selects the shortest interval.
+                    val framePeriodMs = if (autoCombat.running &&
+                        autoCombat.configuredSettings().tapIntervalMs <= 1000L)
+                        250L else 750L
+                    if (now - lastFrame >= framePeriodMs) {
                         lastFrame = now
                         expireArmedTapIfNeeded()
                         autoCombat.timeCheck(SystemClock.elapsedRealtime())
@@ -275,6 +291,8 @@ class CaptureService : Service() {
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,r.surface,null,null)
             getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                 .putBoolean("captureActive",true).apply()
+            // Show floating START as soon as screen capture becomes active.
+            persistAutoStatus(SystemClock.elapsedRealtime())
         } catch(e:Exception) {
             getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                 .putString("last","Ошибка запуска: ${e.javaClass.simpleName}: ${e.message}").apply()
@@ -290,10 +308,10 @@ class CaptureService : Service() {
     private fun persistAutoStatus(now: Long) {
         val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
         val current = "${autoCombat.mode}: ${autoCombat.status}"
-        if (autoCombat.running) {
-            val shown = stopOverlay.show()
+        if (projection != null && prefs.getBoolean("captureActive",false)) {
+            val shown = stopOverlay.show(autoCombat.running)
             if (!shown) prefs.edit().putString("overlayStatus",
-                "Поверх игры кнопка недоступна; СТОП есть в уведомлении").apply()
+                "Плавающие СТАРТ/СТОП недоступны; СТОП есть в уведомлении").apply()
         } else stopOverlay.hide()
         if (current != lastAutoStatus) {
             lastAutoStatus = current
@@ -323,7 +341,7 @@ class CaptureService : Service() {
 
     /**
      * Auto gestures run only during a user-approved time-boxed session
-     * (1..120 minutes, >=2 seconds between touches). The physical-display
+     * (1..120 minutes, >=0.5 seconds between touches). The physical-display
      * coordinates come from the proven MediaProjection inverse transform.
      */
     private fun dispatchAutoTap(
