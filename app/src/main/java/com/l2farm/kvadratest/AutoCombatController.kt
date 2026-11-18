@@ -186,7 +186,7 @@ class AutoCombatController {
                 }
                 if (targetValid >= 2 && targetDecision == TargetAction.ATTACK &&
                     controlsStable >= 2 && now - lastGestureAt >= settings.tapIntervalMs &&
-                    now - phaseSince >= 750L)
+                    now - phaseSince >= minOf(750L,settings.tapIntervalMs))
                     return send(CombatTap.ATTACK, now,
                         "Нажимаю «Атака» один раз; затем наблюдаю HP")
             }
