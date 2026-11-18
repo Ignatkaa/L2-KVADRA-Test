@@ -22,7 +22,7 @@ data class CombatSettings(
     companion object {
         const val MIN_DURATION_MINUTES = 1
         const val MAX_DURATION_MINUTES = 120
-        const val MIN_INTERVAL_MS = 2000L
+        const val MIN_INTERVAL_MS = 500L
         const val MAX_INTERVAL_MS = 10000L
         const val INTERVAL_STEP_MS = 500L
 
