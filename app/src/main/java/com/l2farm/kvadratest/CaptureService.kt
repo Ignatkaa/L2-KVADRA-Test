@@ -68,7 +68,7 @@ class CaptureService : Service() {
             .putString("testTapStatus","Одиночный тест касания не запрошен")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.6.2")
+            .setContentTitle("L2 KVADRA Test v1.6.3")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -133,7 +133,7 @@ class CaptureService : Service() {
                             targetHp = o.targetHp
                         )
                         frames++
-                        tryArmedSingleTap(vision, decision)
+                        tryArmedSingleTap(vision, decision, img.width, img.height)
                         val stateChanged = targetHistory.record(
                             frame = frames,
                             elapsedMs = now - startedAt,
@@ -200,7 +200,8 @@ class CaptureService : Service() {
      * No autonomous tapping, coordinate fallback or repeat loop is allowed.
      * Requires a recognized game HUD AND both control-button shapes.
      */
-    private fun tryArmedSingleTap(vision: VisionResult, decision: TargetDecision) {
+    private fun tryArmedSingleTap(vision: VisionResult, decision: TargetDecision,
+        capturedWidth: Int, capturedHeight: Int) {
         val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
         val action = prefs.getString("testTapAction",null) ?: return
         val elapsed = SystemClock.elapsedRealtime()
@@ -235,24 +236,47 @@ class CaptureService : Service() {
             return
         }
         val coordinate = if (action == "TARGET") controls.target else controls.attack
-        if (coordinate.x <= 0 || coordinate.y <= 0) return
+
+        // GestureDescription coordinates are in PHYSICAL display pixels, but
+        // MediaProjection was created with resources.displayMetrics (2000x1110).
+        // On this 2000x1200 tablet, projection is pillarboxed by 75px and
+        // scaled by 0.925. Map back to the actual display before dispatch.
+        val real = android.graphics.Point()
+        val windowManager = getSystemService(WINDOW_SERVICE) as android.view.WindowManager
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay.getRealSize(real)
+        val mapping = TouchCoordinateMapper.map(
+            coordinate, capturedWidth, capturedHeight, real.x, real.y
+        )
+        if (mapping == null) {
+            prefs.edit().putString("testTapBlockedReason",
+                "Нельзя пересчитать координаты: capture=${capturedWidth}x${capturedHeight}, " +
+                    "экран=${real.x}x${real.y}, кнопка=(${coordinate.x},${coordinate.y})")
+                .apply()
+            return
+        }
+        val tapPoint = mapping.point
+        val mappingInfo = mapping.describe() +
+            ", image=(${coordinate.x},${coordinate.y}), " +
+            "touch=(${tapPoint.x},${tapPoint.y})"
 
         // Commit before dispatch: if more frames arrive, the same request cannot tap twice.
         val cleared = prefs.edit()
             .remove("testTapAction").remove("testTapDeadline")
             .remove("testTapBlockedReason")
-            .putString("testTapStatus","Однократное касание $action отправлено: " +
-                "(${coordinate.x},${coordinate.y}), раскладка=${controls.layout}")
+            .putString("testTapStatus","Однократный жест $action отправлен: " +
+                mappingInfo + ", раскладка=${controls.layout}")
             .commit()
         if (!cleared) return
         lastManualTapAt = elapsed
-        service.tap(coordinate.x.toFloat(),coordinate.y.toFloat()) { ok ->
+        service.tap(tapPoint.x.toFloat(),tapPoint.y.toFloat()) { ok ->
             prefs.edit().putString(
                 "testTapStatus",
-                if (ok) "ОДНО касание $action выполнено: " +
-                    "(${coordinate.x},${coordinate.y}), раскладка=${controls.layout}; " +
-                    "эффект на игре проверяется визуально"
-                else "Жест $action отменён; повторного касания не будет"
+                if (ok) "Android выполнил жест $action: " + mappingInfo +
+                    ", раскладка=${controls.layout}. " +
+                    "Реакцию игры необходимо проверить отдельно."
+                else "Android отменил жест $action: " + mappingInfo +
+                    "; повторного касания не будет"
             ).apply()
         }
     }
