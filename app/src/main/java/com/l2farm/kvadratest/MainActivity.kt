@@ -56,7 +56,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "L2 KVADRA Test v1.7 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
+            text = "L2 KVADRA Test v1.8 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
             textSize = 18f
         })
         quickStatus = TextView(this).apply {
@@ -79,11 +79,22 @@ class MainActivity : Activity() {
             refresh()
         }
 
+        val autoRow = newRow(root)
+        smallButton(autoRow, "ПУСК АВТОБОЯ · 3 МИН") { confirmAutoStart() }
+        smallButton(autoRow, "СТОП АВТОБОЯ") { stopAutoCombat() }
+
         val testRow = newRow(root)
         smallButton(testRow, "ОДНО КАСАНИЕ «ЦЕЛЬ»") { armManualTap("TARGET") }
         smallButton(testRow, "ОДНО КАСАНИЕ «АТАКА»") { armManualTap("ATTACK") }
         smallButton(testRow, "ОТМЕНА ТЕСТА") { confirmCancellation() }
 
+        root.addView(TextView(this).apply {
+            text = "Автобой работает максимум 3 минуты, до 12 жестов. " +
+                "Нажатие СТОП или кнопка уведомления прекращает цикл. " +
+                "Если HP цели не читается, автобой ставится на паузу."
+            textSize = 13f
+            setPadding(0, 5, 0, 5)
+        })
         root.addView(TextView(this).apply {
             text = "Тест запускается только вручную. После нажатия перейдите в L2Meta за 30 секунд. " +
                 "«Атака» требует подтверждённую живую цель; после жеста проверяем снижение её HP."
@@ -138,6 +149,39 @@ class MainActivity : Activity() {
         refresh()
     }
 
+    private fun confirmAutoStart() {
+        val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+        if (!prefs.getBoolean("captureActive",false)) {
+            quickStatus.text = "Сначала разреши захват экрана через «Начать наблюдение»"
+            return
+        }
+        if (TestAccessibilityService.instance == null) {
+            quickStatus.text = "Включи L2 KVADRA в специальных возможностях"
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Запустить управляемый бой?")
+            .setMessage(
+                "Hawkeye будет нажимать «Цель» и один раз «Атака» для каждой " +
+                "подтверждённой цели, затем отслеживать HP. Максимум 3 минуты, " +
+                "12 жестов или 6 потерянных целей. " +
+                "При неоднозначном распознавании — пауза. " +
+                "Остановить можно из приложения или уведомления."
+            )
+            .setPositiveButton("ПУСК") { _,_ ->
+                startService(Intent(this,CaptureService::class.java)
+                    .setAction(CaptureService.ACTION_AUTO_START))
+                quickStatus.text = "Автобой запускается. Переключись в L2Meta."
+            }
+            .setNegativeButton("Отмена",null).show()
+    }
+
+    private fun stopAutoCombat() {
+        startService(Intent(this,CaptureService::class.java)
+            .setAction(CaptureService.ACTION_AUTO_STOP))
+        quickStatus.text = "Команда СТОП АВТОБОЯ отправлена"
+    }
+
     private fun confirmCancellation() {
         val prefs = getSharedPreferences("diagnostics", MODE_PRIVATE)
         if (!prefs.contains("testTapAction")) {
@@ -161,6 +205,11 @@ class MainActivity : Activity() {
 
     private fun armManualTap(action: String) {
         val prefs = getSharedPreferences("diagnostics", MODE_PRIVATE)
+        val mode = prefs.getString("autoMode","OFF")
+        if (mode != "OFF") {
+            quickStatus.text = "Для ручного теста сначала нажми «СТОП АВТОБОЯ»"
+            return
+        }
         if (!prefs.getBoolean("captureActive", false)) {
             quickStatus.text = "ЗАПРЕЩЕНО: сначала нажмите «Начать наблюдение»"
             return
@@ -189,7 +238,12 @@ class MainActivity : Activity() {
             else "Захват выключен"
         val armed = if (p.contains("testTapAction")) " · ОЖИДАЕТ КАСАНИЯ" else ""
         val attackFeedback = p.getString("attackFeedback",null)
-        quickStatus.text = "$capture$armed\n$testStatus" +
+        val autoStatus = p.getString("autoStatus","Автобой выключен")
+        val autoGestures = p.getInt("autoGestures",0)
+        val autoLost = p.getInt("autoTargetsLost",0)
+        quickStatus.text = "$capture$armed\nАВТОБОЙ: $autoStatus" +
+            "\nЖестов: $autoGestures/12 · потеряно целей: $autoLost/6" +
+            "\n$testStatus" +
             (if (reason != null) "\nПричина: $reason" else "") +
             (if (attackFeedback != null) "\nПроверка атаки: $attackFeedback" else "")
 
@@ -200,11 +254,15 @@ class MainActivity : Activity() {
             ?: "Нет данных"
         val history = p.getString("transitionHistory", "Переходов пока нет")
             ?: "Переходов пока нет"
+        val autoHistory = p.getString("autoHistory","Нет событий") ?: "Нет событий"
+        val lastAutoTap = p.getString("autoLastGesture","Нет") ?: "Нет"
         details.text = "ПОСЛЕДНИЙ КАДР\n$last\n" +
             "Пропущено UI: ${p.getInt("skippedUiFrames", 0)}, " +
             "отклонено HUD: ${p.getInt("rejectedFrames", 0)}\n\n" +
             "СОХРАНЁННЫЙ PNG\n$saved\n$paired\n\n" +
-            "ИСТОРИЯ ЦЕЛИ\n$history"
+            "ИСТОРИЯ ЦЕЛИ\n$history\n\n" +
+            "ИСТОРИЯ АВТОБОЯ\n$autoHistory\n" +
+            "Последний жест: $lastAutoTap"
     }
 
     override fun onResume() {
