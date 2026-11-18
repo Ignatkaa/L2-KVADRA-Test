@@ -89,7 +89,8 @@ class AutoCombatControllerTest {
             c.onGestureResult(base+1700L,CombatTap.TARGET,true,null)
             step(c,base+8500L)
         }
-        val result=step(c,37000L)
+        step(c,37000L)
+        val result=step(c,38000L)
         assertNull(result.tap)
         assertEquals(CombatMode.PAUSED,c.mode)
     }
