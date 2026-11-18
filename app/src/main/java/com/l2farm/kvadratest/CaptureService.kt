@@ -36,6 +36,7 @@ class CaptureService : Service() {
     private var rejectedFrames = 0
     private val targetTracker = TargetCombatTracker()
     private val targetHistory = TargetTransitionHistory()
+    private var lastManualTapAt = 0L
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -58,11 +59,15 @@ class CaptureService : Service() {
         rejectedFrames = 0
         targetTracker.reset()
         targetHistory.reset()
+        lastManualTapAt = 0L
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
+            .remove("testTapAction").remove("testTapDeadline")
+            .putBoolean("captureActive",false)
+            .putString("testTapStatus","Одиночный тест касания не запрошен")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.5.1")
+            .setContentTitle("L2 KVADRA Test v1.6")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -116,6 +121,7 @@ class CaptureService : Service() {
                             targetHp = o.targetHp
                         )
                         frames++
+                        tryArmedSingleTap(vision, decision)
                         val stateChanged = targetHistory.record(
                             frame = frames,
                             elapsedMs = now - startedAt,
@@ -153,6 +159,8 @@ class CaptureService : Service() {
             },Handler(mainLooper))
             display = p.createVirtualDisplay("L2Observer",w,h,metrics.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,r.surface,null,null)
+            getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+                .putBoolean("captureActive",true).apply()
         } catch(e:Exception) {
             getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                 .putString("last","Ошибка запуска: ${e.javaClass.simpleName}: ${e.message}").apply()
@@ -160,6 +168,56 @@ class CaptureService : Service() {
         }
         return START_NOT_STICKY
     }
+    /**
+     * One-shot, explicitly armed by the user in MainActivity.
+     * No autonomous tapping, coordinate fallback or repeat loop is allowed.
+     * Requires a recognized game HUD AND both control-button shapes.
+     */
+    private fun tryArmedSingleTap(vision: VisionResult, decision: TargetDecision) {
+        val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+        val action = prefs.getString("testTapAction",null) ?: return
+        val elapsed = SystemClock.elapsedRealtime()
+        val deadline = prefs.getLong("testTapDeadline",0L)
+        if (deadline <= elapsed) {
+            prefs.edit().remove("testTapAction").remove("testTapDeadline")
+                .putString("testTapStatus","Время ожидания теста истекло; касаний не было").apply()
+            return
+        }
+        val controls = vision.controls ?: return
+        if (!vision.gameHud) return
+        val eligible = when (action) {
+            "TARGET" -> decision.action == TargetAction.SEARCH
+            "ATTACK" -> decision.action == TargetAction.ATTACK
+            else -> false
+        }
+        if (!eligible || elapsed - lastManualTapAt < 5000L) return
+        val service = TestAccessibilityService.instance ?: run {
+            prefs.edit().remove("testTapAction").remove("testTapDeadline")
+                .putString("testTapStatus","AccessibilityService выключена; касаний не было").apply()
+            return
+        }
+        val coordinate = if (action == "TARGET") controls.target else controls.attack
+        if (coordinate.x <= 0 || coordinate.y <= 0) return
+
+        // Commit before dispatch: if more frames arrive, the same request cannot tap twice.
+        val cleared = prefs.edit()
+            .remove("testTapAction").remove("testTapDeadline")
+            .putString("testTapStatus","Однократное касание $action отправлено: " +
+                "(${coordinate.x},${coordinate.y}), раскладка=${controls.layout}")
+            .commit()
+        if (!cleared) return
+        lastManualTapAt = elapsed
+        service.tap(coordinate.x.toFloat(),coordinate.y.toFloat()) { ok ->
+            prefs.edit().putString(
+                "testTapStatus",
+                if (ok) "ОДНО касание $action выполнено: " +
+                    "(${coordinate.x},${coordinate.y}), раскладка=${controls.layout}; " +
+                    "эффект на игре проверяется визуально"
+                else "Жест $action отменён; повторного касания не будет"
+            ).apply()
+        }
+    }
+
     private fun saveSnapshot(image: android.media.Image, diagnostic: String, capturedAt: Long) {
         var bitmap: Bitmap? = null
         try {
@@ -210,6 +268,9 @@ class CaptureService : Service() {
         } finally { bitmap?.recycle() }
     }
     override fun onDestroy() {
+        getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+            .remove("testTapAction").remove("testTapDeadline")
+            .putBoolean("captureActive",false).apply()
         if (!stopping) {
             stopping = true
             reader?.setOnImageAvailableListener(null,null)
