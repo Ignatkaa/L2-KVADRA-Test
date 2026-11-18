@@ -35,6 +35,7 @@ class CaptureService : Service() {
     private var skippedUiFrames = 0
     private var rejectedFrames = 0
     private val targetTracker = TargetCombatTracker()
+    private val targetHistory = TargetTransitionHistory()
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
         super.onCreate()
@@ -56,11 +57,12 @@ class CaptureService : Service() {
         skippedUiFrames = 0
         rejectedFrames = 0
         targetTracker.reset()
+        targetHistory.reset()
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
-            .remove("last").remove("snapshot").remove("snapshotFrame")
+            .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.5")
+            .setContentTitle("L2 KVADRA Test v1.5.1")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -114,6 +116,12 @@ class CaptureService : Service() {
                             targetHp = o.targetHp
                         )
                         frames++
+                        val stateChanged = targetHistory.record(
+                            frame = frames,
+                            elapsedMs = now - startedAt,
+                            decision = decision,
+                            panelVisible = o.targetVisible
+                        )
                         val message = "Кадр #$frames ${img.width}x${img.height} | " +
                             "Цель=${if(o.targetVisible) "выбрана" else "нет"} | " +
                             "HP цели=${o.targetHp?.toString() ?: "?"}% | " +
@@ -131,6 +139,11 @@ class CaptureService : Service() {
                             .putInt("skippedUiFrames",skippedUiFrames)
                             .putInt("rejectedFrames",rejectedFrames)
                             .apply()
+                        if (stateChanged) {
+                            getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+                                .putString("transitionHistory",targetHistory.asText())
+                                .apply()
+                        }
                         }
                     }
                 } catch (e: Exception) {
