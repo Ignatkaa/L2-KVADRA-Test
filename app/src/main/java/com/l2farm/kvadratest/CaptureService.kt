@@ -135,7 +135,7 @@ class CaptureService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.9")
+            .setContentTitle("L2 KVADRA Test v2.0")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .addAction(Notification.Action.Builder(
@@ -322,8 +322,9 @@ class CaptureService : Service() {
     private var startedAtElapsed = 0L
 
     /**
-     * Auto gestures only run after a user-confirmed three-minute session.
-     * Uses the same proven physical-display mapping as the manual tests.
+     * Auto gestures run only during a user-approved time-boxed session
+     * (1..120 minutes, >=2 seconds between touches). The physical-display
+     * coordinates come from the proven MediaProjection inverse transform.
      */
     private fun dispatchAutoTap(
         action: CombatTap, vision: VisionResult,
