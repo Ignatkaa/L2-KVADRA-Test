@@ -29,6 +29,8 @@ class AutoCombatController {
     var targetsLost = 0
         private set
     private var startedAt = 0L
+    private var lastObservedAt = 0L
+    private var finishedAt: Long? = null
     private var settings = CombatSettings()
     private var successfulTargetTaps = 0
     private var successfulAttackTaps = 0
@@ -57,6 +59,8 @@ class AutoCombatController {
         mode = CombatMode.SEARCH
         status = "Автобой запущен вручную; ожидаю игровой HUD"
         startedAt = now
+        lastObservedAt = now
+        finishedAt = null
         phaseSince = now
         lastGestureAt = now - settings.tapIntervalMs
         successfulTargetTaps = 0
@@ -80,6 +84,7 @@ class AutoCombatController {
     }
 
     fun stop(reason: String = "Автобой остановлен вручную") {
+        if (running && finishedAt == null) finishedAt = lastObservedAt
         mode = CombatMode.OFF
         status = reason
         waitingCallback = false
@@ -88,6 +93,7 @@ class AutoCombatController {
 
     fun pause(reason: String) {
         if (mode == CombatMode.OFF || mode == CombatMode.PAUSED) return
+        finishedAt = lastObservedAt
         mode = CombatMode.PAUSED
         status = "ПАУЗА: $reason. Для продолжения необходим ручной запуск."
         waitingCallback = false
@@ -96,6 +102,7 @@ class AutoCombatController {
 
     fun timeCheck(now: Long) {
         if (!running) return
+        lastObservedAt = now
         if (now - startedAt >= settings.durationMs)
             pause("достигнут предел ${settings.durationMinutes} мин")
         else if (waitingCallback && now - gestureRequestedAt > 4_000L)
@@ -251,7 +258,8 @@ class AutoCombatController {
     }
 
     fun statistics(now: Long): CombatStatistics = CombatStatistics(
-        elapsedSeconds = ((now - startedAt).coerceAtLeast(0L) / 1000L),
+        elapsedSeconds = (if (startedAt == 0L && lastObservedAt == 0L) 0L
+            else ((finishedAt ?: now) - startedAt).coerceAtLeast(0L) / 1000L),
         targetTaps = successfulTargetTaps,
         attackTaps = successfulAttackTaps,
         confirmedSelections = confirmedSelections,
@@ -265,6 +273,7 @@ class AutoCombatController {
 
     /** Called after the AccessibilityService gesture completion callback. */
     fun onGestureResult(now: Long, tap: CombatTap, ok: Boolean, observedHp: Int?) {
+        if (running) lastObservedAt = now
         if (!running || !waitingCallback || tap != expectedTap) return
         waitingCallback = false
         expectedTap = null
