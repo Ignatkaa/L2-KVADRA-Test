@@ -2,80 +2,75 @@ package com.l2farm.kvadratest
 
 import android.media.Image
 
-data class VisionResult(val observation: FarmObservation, val diagnostics: String)
+data class VisionResult(
+    val observation: FarmObservation,
+    val diagnostics: String,
+    val gameHud: Boolean
+)
 
-/** L2Meta 2000x1110 landscape calibration; observation only, no input injection. */
+/**
+ * Target-first L2Meta 2000x1110 calibration.
+ * Character HP/MP are handled by the game's own consumable automation.
+ * Observation only: no gestures are injected into L2Meta.
+ */
 object ScreenVision {
     fun inspect(image: Image): VisionResult {
-        val plane=image.planes[0]
-        val buffer=plane.buffer
-        val w=image.width
-        val h=image.height
-        fun sx(x:Int)=((x.toDouble()*w/2000.0).toInt()).coerceIn(0,w-1)
-        fun sy(y:Int)=((y.toDouble()*h/1110.0).toInt()).coerceIn(0,h-1)
-        fun rgb(x:Int,y:Int):IntArray? {
-            if(x !in 0 until w || y !in 0 until h) return null
-            val index=y.toLong()*plane.rowStride+x.toLong()*plane.pixelStride
-            if(index<0 || index+2>=buffer.limit()) return null
-            val i=index.toInt()
-            return intArrayOf(buffer.get(i).toInt() and 255,
-                buffer.get(i+1).toInt() and 255,buffer.get(i+2).toInt() and 255)
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val width = image.width
+        val height = image.height
+        fun sx(x: Int): Int = (x.toDouble() * width / 2000.0)
+            .toInt().coerceIn(0, width - 1)
+        fun sy(y: Int): Int = (y.toDouble() * height / 1110.0)
+            .toInt().coerceIn(0, height - 1)
+        fun rgb(x: Int, y: Int): IntArray? {
+            if (x !in 0 until width || y !in 0 until height) return null
+            val index = y.toLong() * plane.rowStride + x.toLong() * plane.pixelStride
+            if (index < 0 || index + 2 >= buffer.limit()) return null
+            val i = index.toInt()
+            return intArrayOf(
+                buffer.get(i).toInt() and 255,
+                buffer.get(i + 1).toInt() and 255,
+                buffer.get(i + 2).toInt() and 255
+            )
         }
-        fun red(c:IntArray)=c[0]>125 && c[0]>c[1]*1.45 && c[0]>c[2]*1.3
-        fun blue(c:IntArray)=c[2]>125 && c[2]>c[0]*1.4 && c[2]>c[1]*1.18
-        fun gold(c:IntArray)=c[0]>125 && c[1]>75 && c[0]>c[2]*1.5 && c[1]>c[2]*1.4
-        val step=(w/2000).coerceAtLeast(1)
-        fun measure(x1:Int,x2:Int,centerY:Int,predicate:(IntArray)->Boolean):BarMeasurement =
-            BarAnalyzer.scan(sx(x1),sx(x2),sy(centerY),step) { x,y ->
-                rgb(x,y)?.let(predicate)==true
-            }
-        // x=126..383 are the full player bars in the actual PNG (not 154..460).
-        fun darkAt(x:Int,y:Int):Boolean {
-            val c=rgb(sx(x),sy(y)) ?: return false
-            return (c.maxOrNull() ?: 255)<110
+        fun darkAt(x: Int, y: Int): Boolean {
+            val c = rgb(sx(x), sy(y)) ?: return false
+            return (c.maxOrNull() ?: 255) < 110
         }
-        val gameHud=listOf(95 to 38,340 to 40,820 to 38,1195 to 40,1540 to 42)
-            .count { (x,y) -> darkAt(x,y) }>=3
-        val cp=measure(151,383,92,::gold)
-        val hp=measure(151,383,117,::red)
-        val mp=measure(151,383,142,::blue)
-        // Calibrated on the game PNG: full target bar x=755..1078; fill starts near 756.
-        val target=measure(755,1078,72,::red)
-        // Numeric HUD text is authoritative; the coloured fill can lag during combat.
-        // Never use an unverified animated HP bar to drive a healing recommendation.
-        val cpText = if (gameHud) HudNumericReader.read(HudStatRow.CP) { x,y ->
-            rgb(sx(x),sy(y))
+        fun red(c: IntArray) =
+            c[0] > 125 && c[0] > c[1] * 1.45 && c[0] > c[2] * 1.3
+
+        val gameHud = listOf(95 to 38, 340 to 40, 820 to 38, 1195 to 40, 1540 to 42)
+            .count { (x, y) -> darkAt(x, y) } >= 3
+
+        // Target frame is the panel at the top centre of the L2Meta display.
+        val targetPanel = gameHud &&
+            listOf(807 to 22, 1210 to 23, 1205 to 99)
+                .count { (x, y) -> darkAt(x, y) } >= 2
+
+        // The visible target HP bar spans x=755..1078. Scan across neighbouring
+        // rows to avoid losing the fill due to text overlay or motion.
+        val targetBar = if (targetPanel) {
+            BarAnalyzer.scan(
+                sx(755), sx(1078), sy(72),
+                (width / 2000).coerceAtLeast(1)
+            ) { x, y -> rgb(x, y)?.let(::red) == true }
         } else null
-        val hpText = if (gameHud) HudNumericReader.read(HudStatRow.HP) { x,y ->
-            rgb(sx(x),sy(y))
-        } else null
-        val mpText = if (gameHud) HudNumericReader.read(HudStatRow.MP) { x,y ->
-            rgb(sx(x),sy(y))
-        } else null
-        val panel=gameHud && (hp.percent!=null || hpText!=null) &&
-            (mp.percent!=null || mpText!=null)
-        val targetVisible=gameHud && listOf(807 to 22,1210 to 23,1205 to 99)
-            .count { (x,y) -> darkAt(x,y) }>=2
-        val targetPercent=if(targetVisible) target.percent else null
-        val obs=FarmObservation(
-            if(panel) hpText?.percent else null,
-            if(panel) mpText?.percent else null,
-            targetVisible,
-            targetPercent
+
+        // Missing coloured pixels are UNKNOWN, never an invented 0% or "dead".
+        val targetHp = targetBar?.percent
+        val observation = FarmObservation(
+            hp = null, mp = null,
+            targetVisible = targetPanel, targetHp = targetHp
         )
-        val probe=listOf(92,117,142).joinToString(";") { yy ->
-            val c=rgb(sx(180),sy(yy))
-            "$yy:"+(c?.joinToString(",") ?: "?")
-        }
-        fun shown(v: HudNumericValue?): String =
-            if(v==null) "?" else "${v.current}/${v.maximum}"
-        val diagnostics="gameHud=$gameHud panel=$panel " +
-            "cp=${cpText?.percent ?: "?"} hp=${hpText?.percent ?: "?"} mp=${mpText?.percent ?: "?"} target=${target.percent ?: "?"} " +
-            "cpText=${shown(cpText)} hpText=${shown(hpText)} mpText=${shown(mpText)} " +
-            "cpBar=${cp.percent ?: "?"} hpBar=${hp.percent ?: "?"} mpBar=${mp.percent ?: "?"} " +
-            "hits=${cp.hits}/${hp.hits}/${mp.hits}/${target.hits} " +
-            "runs=${cp.continuity}/${hp.continuity}/${mp.continuity}/${target.continuity} " +
-            "scanY=${cp.scanY}/${hp.scanY}/${mp.scanY}/${target.scanY} rgb=$probe"
-        return VisionResult(obs,diagnostics)
+        val diagnostics =
+            "gameHud=$gameHud targetPanel=$targetPanel " +
+            "target=${targetHp ?: "?"} " +
+            "targetHits=${targetBar?.hits ?: 0} " +
+            "targetRun=${targetBar?.continuity ?: 0} " +
+            "targetScanY=${targetBar?.scanY ?: "?"} " +
+            "targetCoverage=${targetBar?.confidence ?: 0}"
+        return VisionResult(observation, diagnostics, gameHud)
     }
 }
