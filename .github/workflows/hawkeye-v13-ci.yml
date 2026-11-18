@@ -1,4 +1,4 @@
-name: Hawkeye v1.6 Control CI
+name: Hawkeye v1.6.1 Control CI
 
 on:
   push:
@@ -31,6 +31,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: L2KVADRA-Hawkeye-v1.6-controls-debug
+          name: L2KVADRA-Hawkeye-v1.6.1-controls-debug
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
