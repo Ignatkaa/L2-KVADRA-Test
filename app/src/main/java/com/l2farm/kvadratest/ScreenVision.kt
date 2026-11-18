@@ -66,28 +66,32 @@ object ScreenVision {
             listOf(807 to 22, 1210 to 23, 1205 to 99)
                 .count { (x, y) -> darkAt(x, y) } >= 2
 
-        // The visible target HP bar spans x=755..1078. Scan across neighbouring
-        // rows to avoid losing the fill due to text overlay or motion.
-        val targetBar = if (targetPanel) {
-            BarAnalyzer.scan(
-                sx(755), sx(1078), sy(72),
-                (width / 2000).coerceAtLeast(1)
-            ) { x, y -> rgb(x, y)?.let(::red) == true }
+        // Two observed positions of the red target HP strip:
+        // (755..1078) Ol Mahum and (980..1304) Hot Springs.
+        // Unknown fill remains null; it never means a dead target.
+        val targetReading = if (targetPanel) {
+            TargetBarDetector.detect(width, height) { x, y ->
+                rgb(x, y)?.let(::red) == true
+            }
         } else null
-
-        // Missing coloured pixels are UNKNOWN, never an invented 0% or "dead".
-        val targetHp = targetBar?.percent
+        val targetHp = targetReading?.percent
         val observation = FarmObservation(
             hp = null, mp = null,
             targetVisible = targetPanel, targetHp = targetHp
         )
+        val measured = targetReading?.let {
+            if (it.position == TargetBarPosition.RIGHT_980) it.secondary
+            else it.primary
+        }
         val diagnostics =
             "gameHud=$gameHud targetPanel=$targetPanel " +
             "target=${targetHp ?: "?"} " +
-            "targetHits=${targetBar?.hits ?: 0} " +
-            "targetRun=${targetBar?.continuity ?: 0} " +
-            "targetScanY=${targetBar?.scanY ?: "?"} " +
-            "targetCoverage=${targetBar?.confidence ?: 0} " +
+            "targetRegion=${targetReading?.position ?: "?"} " +
+            "targetHits=${measured?.hits ?: 0} " +
+            "targetRun=${measured?.continuity ?: 0} " +
+            "targetScanY=${measured?.scanY ?: "?"} " +
+            "leftHits=${targetReading?.primary?.hits ?: 0} " +
+            "rightHits=${targetReading?.secondary?.hits ?: 0} " +
             "controls=${controls?.layout ?: "?"} " +
             "targetButton=${controls?.target?.let { "${it.x},${it.y}" } ?: "?"} " +
             "attackButton=${controls?.attack?.let { "${it.x},${it.y}" } ?: "?"}"
