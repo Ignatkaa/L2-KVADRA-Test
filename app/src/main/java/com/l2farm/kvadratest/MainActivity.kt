@@ -93,7 +93,7 @@ class MainActivity : Activity() {
         status.text=(p.getString("last","Кадров пока нет") ?: "Кадров пока нет") + "\nПропущено UI: ${p.getInt("skippedUiFrames",0)}; отклонено HUD: ${p.getInt("rejectedFrames",0)}" + "\n" + (p.getString("snapshot","PNG ещё не сохранён") ?: "") + "\nДиагностика сохранённого PNG:\n" + (p.getString("snapshotFrame","Пока нет") ?: "Пока нет") +
             "\n\nИстория состояний цели (последние 24 перехода):\n" +
             (p.getString("transitionHistory","Переходов пока нет") ?: "Переходов пока нет") +
-            "\\n\\nТест кнопок: " +
+            "\n\nТест кнопок: " +
             (p.getString("testTapStatus","Не запускался") ?: "Не запускался")
     }
     override fun onResume() { super.onResume(); refresh() }
