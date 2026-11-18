@@ -72,6 +72,7 @@ class CaptureService : Service() {
                 autoHistory.clear()
                 lastAutoStatus = ""
                 prefs.edit().remove("testTapAction").remove("testTapDeadline")
+                    .remove("autoLastGesture")
                     .putString("autoHistory","").apply()
                 persistAutoStatus(SystemClock.elapsedRealtime())
             }
@@ -101,6 +102,7 @@ class CaptureService : Service() {
             .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
             .remove("attackFeedback")
             .putBoolean("autoRunning",false)
+            .putString("autoMode","OFF")
             .putString("autoStatus","Автобой выключен")
             .putString("autoHistory","")
             .remove("testTapAction").remove("testTapDeadline")
