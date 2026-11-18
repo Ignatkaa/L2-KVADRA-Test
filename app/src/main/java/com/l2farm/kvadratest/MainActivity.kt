@@ -100,7 +100,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "HAWKEYE    /    L2 KVADRA  v1.9"
+            text = "HAWKEYE    /    L2 KVADRA  v2.0"
             setTextColor(pale)
             textSize = 23f
             typeface = Typeface.DEFAULT_BOLD
@@ -127,47 +127,61 @@ class MainActivity : Activity() {
         root.addView(stats)
 
         val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+        val currentSettings = CombatSettings.safe(
+            prefs.getInt("durationMinutes",3),prefs.getLong("tapIntervalMs",3500L)
+        )
         val options = newRow(root)
-        val settingsLabel = TextView(this).apply {
-            text = "НАСТРОЙКИ БОЯ"
-            setTextColor(muted)
-            textSize = 12f
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        options.addView(settingsLabel,LinearLayout.LayoutParams(0,
-            (46 * resources.displayMetrics.density).toInt(),0.8f))
+        val density = resources.displayMetrics.density
 
-        fun spinner(values: List<String>, initial: Int, onSelect: (Int)->Unit): Spinner {
-            return Spinner(this).apply {
-                adapter = ArrayAdapter(this@MainActivity,
-                    android.R.layout.simple_spinner_dropdown_item,values)
-                background = rounded(Color.rgb(231, 242, 250))
-                setSelection(initial.coerceIn(0,values.lastIndex))
-                onItemSelectedListener = object: AdapterView.OnItemSelectedListener {
-                    override fun onNothingSelected(parent: AdapterView<*>?) {}
-                    override fun onItemSelected(
-                        parent: AdapterView<*>?, view: View?, position: Int, id: Long
-                    ) { onSelect(position) }
-                }
+        fun settingColumn(title: String, initialProgress: Int,
+            maxProgress: Int, display: (Int) -> String, save: (Int) -> Unit) {
+            val column = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((6*density).toInt(),0,(6*density).toInt(),0)
             }
+            val heading = TextView(this).apply {
+                text = title
+                setTextColor(muted)
+                textSize = 11f
+            }
+            val value = TextView(this).apply {
+                setTextColor(Color.rgb(117,224,224))
+                typeface = Typeface.DEFAULT_BOLD
+                textSize = 16f
+                text = display(initialProgress)
+            }
+            val bar = android.widget.SeekBar(this).apply {
+                max = maxProgress
+                progress = initialProgress
+            }
+            bar.setOnSeekBarChangeListener(object: android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?,
+                    progress: Int, fromUser: Boolean) {
+                    value.text = display(progress)
+                    if (fromUser) save(progress)
+                }
+            })
+            column.addView(heading)
+            column.addView(value)
+            column.addView(bar)
+            options.addView(column,LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT,1f))
         }
-        val durationValues = CombatSettings.DURATIONS
-        val durationIndex = durationValues.indexOf(prefs.getInt("durationMinutes",3))
-            .coerceAtLeast(0)
-        options.addView(spinner(durationValues.map { "$it мин" },durationIndex) {
-            prefs.edit().putInt("durationMinutes",durationValues[it]).apply()
-        },LinearLayout.LayoutParams(0,
-            (44 * resources.displayMetrics.density).toInt(),1f))
-        val intervals = CombatSettings.INTERVALS_MS
-        val intervalIndex = intervals.indexOf(prefs.getLong("tapIntervalMs",3500L))
-            .coerceAtLeast(0)
-        options.addView(spinner(intervals.map {
-            "${if (it == 3500L) "3,5" else (it/1000).toString()} сек"
-        },intervalIndex) {
-            prefs.edit().putLong("tapIntervalMs",intervals[it]).apply()
-        },LinearLayout.LayoutParams(0,
-            (44 * resources.displayMetrics.density).toInt(),1f))
-
+        settingColumn(
+            "ДЛИТЕЛЬНОСТЬ · 1—120 МИН",
+            currentSettings.durationMinutes - 1,119,
+            { p -> "${p+1} мин" },
+            { p -> prefs.edit().putInt("durationMinutes",p+1).apply() }
+        )
+        settingColumn(
+            "ИНТЕРВАЛ · 2—10 СЕК",
+            ((currentSettings.tapIntervalMs-2000L)/500L).toInt(),16,
+            { p -> "${(2000L+p*500L)/1000L}," +
+                (if ((2000L+p*500L)%1000L==0L) "0" else "5") + " сек" },
+            { p -> prefs.edit().putLong("tapIntervalMs",2000L+p*500L).apply() }
+        )
 
         // Important controls are ALWAYS visible. Only the long log scrolls.
         val controlRow = newRow(root)
@@ -282,7 +296,8 @@ class MainActivity : Activity() {
             .setMessage(
                 "Продолжительность: ${settings.durationMinutes} мин. " +
                 "Интервал касаний: ${settings.tapIntervalMs / 1000.0} сек. " +
-                "Лимит жестов: ${settings.maxGestures}. " +
+                "Расчётный предел жестов: ${settings.maxGestures} (по времени и интервалу). " +
+                "Число попыток найти цель не ограничено. " +
                 "Выбор цели → одна атака → контроль HP → следующая цель. " +
                 "При ошибках — защитная пауза. " +
                 "СТОП — на экране, в уведомлении и поверх игры при разрешении."
@@ -362,7 +377,7 @@ class MainActivity : Activity() {
         val autoLost = p.getInt("autoTargetsLost",0)
         val maxGestures = p.getInt("autoGestureLimit",12)
         quickStatus.text = "$capture$armed\nАВТОБОЙ: $autoStatus" +
-            "\nЖестов: $autoGestures/$maxGestures · потеряно целей: $autoLost/6" +
+            "\nЖестов: $autoGestures/$maxGestures · потеряно панелей: $autoLost" +
             "\n$testStatus" +
             (if (reason != null) "\nПричина: $reason" else "") +
             (if (attackFeedback != null) "\nПроверка атаки: $attackFeedback" else "")
