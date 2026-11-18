@@ -56,7 +56,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "L2 KVADRA Test v1.8 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
+            text = "L2 KVADRA Test v1.8.1 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
             textSize = 18f
         })
         quickStatus = TextView(this).apply {
@@ -252,6 +252,10 @@ class MainActivity : Activity() {
             ?: "PNG ещё не сохранён"
         val paired = p.getString("snapshotFrame", "Нет данных")
             ?: "Нет данных"
+        val failurePng = p.getString("failureSnapshot", "Кадр сбоя ещё не записан")
+            ?: "Кадр сбоя ещё не записан"
+        val failureDiagnostic = p.getString("failureSnapshotFrame", "Нет данных")
+            ?: "Нет данных"
         val history = p.getString("transitionHistory", "Переходов пока нет")
             ?: "Переходов пока нет"
         val autoHistory = p.getString("autoHistory","Нет событий") ?: "Нет событий"
@@ -260,6 +264,7 @@ class MainActivity : Activity() {
             "Пропущено UI: ${p.getInt("skippedUiFrames", 0)}, " +
             "отклонено HUD: ${p.getInt("rejectedFrames", 0)}\n\n" +
             "СОХРАНЁННЫЙ PNG\n$saved\n$paired\n\n" +
+            "КАДР ПРИ ПАУЗЕ АВТОБОЯ\n$failurePng\n$failureDiagnostic\n\n" +
             "ИСТОРИЯ ЦЕЛИ\n$history\n\n" +
             "ИСТОРИЯ АВТОБОЯ\n$autoHistory\n" +
             "Последний жест: $lastAutoTap"
