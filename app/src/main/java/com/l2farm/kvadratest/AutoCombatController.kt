@@ -200,7 +200,7 @@ class AutoCombatController {
                 }
                 val baseline = beforeHp
                 if (panel && targetHp != null && baseline != null) {
-                    if (targetHp > baseline + 30) {
+                    if (targetHp >= baseline + 30) {
                         pause("HP цели резко выросло: возможна смена противника")
                     } else {
                         lowerHpFrames = if (targetHp <= baseline - 2)
