@@ -122,7 +122,7 @@ class CaptureService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.8.1")
+            .setContentTitle("L2 KVADRA Test v1.8.2")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .addAction(Notification.Action.Builder(
