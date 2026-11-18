@@ -4,29 +4,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CombatSettingsTest {
-    @Test fun safeSettingsAcceptOnlyWhitelistedDurationsAndIntervals() {
-        assertEquals(CombatSettings(3,3500L),CombatSettings.safe(-1,50L))
-        assertEquals(CombatSettings(3,3500L),CombatSettings.safe(999,500L))
-        assertEquals(CombatSettings(10,10000L),CombatSettings.safe(10,10000L))
+    @Test fun validRangeIsOneToOneHundredTwentyMinutesAndTwoToTenSeconds() {
+        assertEquals(CombatSettings(1,2000L),CombatSettings.safe(-1,50L))
+        assertEquals(CombatSettings(120,10000L),CombatSettings.safe(999,50_000L))
+        assertEquals(CombatSettings(120,2000L),CombatSettings.safe(120,2000L))
         assertEquals(CombatSettings(1,5000L),CombatSettings.safe(1,5000L))
+        assertEquals(CombatSettings(3,3500L),CombatSettings.safe(3,3500L))
+        assertEquals(CombatSettings(4,2500L),CombatSettings.safe(4,2850L))
     }
 
-    @Test fun perSessionTapLimitsRemainFinite() {
-        assertEquals(4,CombatSettings.safe(1,3500L).maxGestures)
-        assertEquals(12,CombatSettings().maxGestures)
-        assertEquals(20,CombatSettings.safe(5,7000L).maxGestures)
-        assertEquals(40,CombatSettings.safe(10,10000L).maxGestures)
+    @Test fun perSessionMaxGesturesScalesToAllowFullLongRun() {
+        assertEquals(31,CombatSettings.safe(1,2000L).maxGestures)
+        assertEquals(52,CombatSettings().maxGestures)
+        assertEquals(3601,CombatSettings.safe(120,2000L).maxGestures)
+        assertEquals(721,CombatSettings.safe(120,10000L).maxGestures)
     }
 
-    @Test fun customDurationStopsAndFreezesElapsedTime() {
+    @Test fun maximumTwoHourSessionOnlyStopsAtConfiguredEnd() {
         val controller = AutoCombatController()
-        controller.start(1000L,CombatSettings.safe(1,7000L))
-        controller.timeCheck(60500L)
+        controller.start(1000L,CombatSettings.safe(120,2000L))
+        controller.timeCheck(601000L)
+        assertTrue("ten minutes must not stop two-hour session",controller.running)
+        controller.timeCheck(7200999L)
         assertTrue(controller.running)
-        controller.timeCheck(61000L)
+        controller.timeCheck(7201000L)
         assertEquals(CombatMode.PAUSED,controller.mode)
-        assertEquals(60L,controller.statistics(1_000_000L).elapsedSeconds)
-        assertEquals(4,controller.statistics(61000L).gestureLimit)
+        assertEquals(7200L,controller.statistics(100000000L).elapsedSeconds)
+        assertEquals(3601,controller.statistics(7201000L).gestureLimit)
     }
 
     @Test fun customIntervalPreventsPrematureSecondTap() {
@@ -36,12 +40,10 @@ class CombatSettingsTest {
         val first=controller.onFrame(2800L,true,true,false,null,TargetAction.SEARCH)
         assertEquals(CombatTap.TARGET,first.tap)
         controller.onGestureResult(2900L,CombatTap.TARGET,true,null)
-        controller.onFrame(10100L,true,true,false,null,TargetAction.SEARCH)
-        // WAIT_TARGET has expired and SEARCH entered, but less than 10s from first tap
-        val early=controller.onFrame(11100L,true,true,false,null,TargetAction.SEARCH)
-        assertNull(early.tap)
-        val late=controller.onFrame(13000L,true,true,false,null,TargetAction.SEARCH)
-        assertEquals(CombatTap.TARGET,late.tap)
+        controller.onFrame(14000L,true,true,false,null,TargetAction.SEARCH)
+        // WAIT_TARGET expires after configured wait, but interval remains 10s.
+        val next=controller.onFrame(15000L,true,true,false,null,TargetAction.SEARCH)
+        assertEquals(CombatTap.TARGET,next.tap)
     }
 
     @Test fun statisticsTrackSuccessfulGesturesNotJustAttemptedOnes() {
