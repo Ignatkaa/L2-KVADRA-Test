@@ -56,7 +56,7 @@ class MainActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "L2 KVADRA Test v1.8.1 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
+            text = "L2 KVADRA Test v1.8.2 — Hawkeye · ${Build.MODEL} · API ${Build.VERSION.SDK_INT}"
             textSize = 18f
         })
         quickStatus = TextView(this).apply {
