@@ -61,18 +61,21 @@ object ScreenVision {
             GameControlsDetector.detect(width, height, ::packedRgb)
         else null
 
-        // Target frame is the panel at the top centre of the L2Meta display.
-        val targetPanel = gameHud &&
-            listOf(807 to 22, 1210 to 23, 1205 to 99)
-                .count { (x, y) -> darkAt(x, y) } >= 2
+        // A dark background does not prove that a target is selected.
+        // Require the gold top border and both vertical sides of the window.
+        val panelEvidence = if (gameHud)
+            TargetPanelDetector.detect(width, height, ::packedRgb)
+        else null
+        val targetPanel = panelEvidence?.visible == true
 
         // Two observed positions of the red target HP strip:
         // (755..1078) Ol Mahum and (980..1304) Hot Springs.
         // Unknown fill remains null; it never means a dead target.
         val targetReading = if (targetPanel) {
-            TargetBarDetector.detect(width, height) { x, y ->
-                rgb(x, y)?.let(::red) == true
-            }
+            TargetBarDetector.detect(width, height,
+                { x, y -> rgb(x, y)?.let(::red) == true },
+                panelEvidence?.position
+            )
         } else null
         val targetHp = targetReading?.percent
         val observation = FarmObservation(
@@ -85,6 +88,9 @@ object ScreenVision {
         }
         val diagnostics =
             "gameHud=$gameHud targetPanel=$targetPanel " +
+            "panelPosition=${panelEvidence?.position ?: "?"} " +
+            "frameLeft=${panelEvidence?.left?.let { "${it.topPercent}/${it.leftPercent}/${it.rightPercent}" } ?: "?"} " +
+            "frameRight=${panelEvidence?.right?.let { "${it.topPercent}/${it.leftPercent}/${it.rightPercent}" } ?: "?"} " +
             "target=${targetHp ?: "?"} " +
             "targetRegion=${targetReading?.position ?: "?"} " +
             "targetHits=${measured?.hits ?: 0} " +
