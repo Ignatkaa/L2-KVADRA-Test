@@ -20,7 +20,7 @@ class MainActivity : Activity() {
             return b
         }
         layout.addView(TextView(this).apply {
-            text="L2 KVADRA Test v1.6 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nЦель и атака · наблюдение и одиночные тестовые касания"
+            text="L2 KVADRA Test v1.6.1 — Hawkeye\n${Build.MANUFACTURER} ${Build.MODEL} · API ${Build.VERSION.SDK_INT}\nЦель и атака · наблюдение и одиночные тестовые касания"
             textSize=19f
         })
         status=TextView(this).apply { text="Ожидание проверки"; textSize=16f; setPadding(0,20,0,20) }
@@ -62,6 +62,7 @@ class MainActivity : Activity() {
         button("9. Отменить тестовое касание") {
             getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
                 .remove("testTapAction").remove("testTapDeadline")
+                .remove("testTapBlockedReason")
                 .putString("testTapStatus","Тест касания отменён вручную").apply()
             refresh()
         }
@@ -79,13 +80,14 @@ class MainActivity : Activity() {
         }
         val label = if (action == "TARGET") "Цель" else "Атака"
         prefs.edit()
+            .remove("testTapBlockedReason")
             .putString("testTapAction",action)
-            .putLong("testTapDeadline",SystemClock.elapsedRealtime()+20000L)
-            .putString("testTapStatus","Ожидается переход в L2Meta: ОДИН тест кнопки «$label», не позднее 20 секунд")
+            .putLong("testTapDeadline",SystemClock.elapsedRealtime()+30000L)
+            .putString("testTapStatus","Ожидается переход в L2Meta: ОДИН тест кнопки «$label», не позднее 30 секунд")
             .apply()
         status.text = "Переключитесь в L2Meta. Hawkeye сделает одно касание «$label» " +
             "только при распознанных кнопках и подходящем состоянии цели. " +
-            "Если условия не выполнены за 20 секунд, касания не будет."
+            "Если условия не выполнены за 30 секунд, касания не будет."
     }
 
     private fun refresh() {
@@ -94,7 +96,9 @@ class MainActivity : Activity() {
             "\n\nИстория состояний цели (последние 24 перехода):\n" +
             (p.getString("transitionHistory","Переходов пока нет") ?: "Переходов пока нет") +
             "\n\nТест кнопок: " +
-            (p.getString("testTapStatus","Не запускался") ?: "Не запускался")
+            (p.getString("testTapStatus","Не запускался") ?: "Не запускался") +
+            "\nПричина ожидания: " +
+            (p.getString("testTapBlockedReason","Нет / условия выполнены") ?: "Нет")
     }
     override fun onResume() { super.onResume(); refresh() }
     @Deprecated("Deprecated in Android")
