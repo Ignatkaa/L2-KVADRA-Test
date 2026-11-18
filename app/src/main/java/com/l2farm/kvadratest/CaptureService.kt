@@ -68,7 +68,7 @@ class CaptureService : Service() {
             .putString("testTapStatus","Одиночный тест касания не запрошен")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.6.1")
+            .setContentTitle("L2 KVADRA Test v1.6.2")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -91,6 +91,7 @@ class CaptureService : Service() {
                     val now = System.currentTimeMillis()
                     if (now - lastFrame >= 750) {
                         lastFrame = now
+                        expireArmedTapIfNeeded()
                         val plane = img.planes[0]
                         val buf = plane.buffer
                         fun pale(xx:Int, yy:Int):Boolean {
@@ -179,6 +180,21 @@ class CaptureService : Service() {
         }
         return START_NOT_STICKY
     }
+    /** Timeout must be handled even when the UI is not recognized as the game. */
+    private fun expireArmedTapIfNeeded() {
+        val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+        val action = prefs.getString("testTapAction",null) ?: return
+        val deadline = prefs.getLong("testTapDeadline",0L)
+        if (SystemClock.elapsedRealtime() < deadline) return
+        val reason = prefs.getString(
+            "testTapBlockedReason","не удалось подтвердить игровой экран и кнопки"
+        )
+        prefs.edit().remove("testTapAction").remove("testTapDeadline")
+            .putString("testTapStatus",
+                "Тест $action завершён БЕЗ КАСАНИЯ: 30 секунд истекли; $reason")
+            .apply()
+    }
+
     /**
      * One-shot, explicitly armed by the user in MainActivity.
      * No autonomous tapping, coordinate fallback or repeat loop is allowed.
