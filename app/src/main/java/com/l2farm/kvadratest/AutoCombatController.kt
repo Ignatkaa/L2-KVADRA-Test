@@ -29,6 +29,11 @@ class AutoCombatController {
     var targetsLost = 0
         private set
     private var startedAt = 0L
+    private var settings = CombatSettings()
+    private var successfulTargetTaps = 0
+    private var successfulAttackTaps = 0
+    private var confirmedSelections = 0
+    private var damageObservations = 0
     private var lastGestureAt = Long.MIN_VALUE / 2
     private var phaseSince = 0L
     private var hudMissing = 0
@@ -47,12 +52,17 @@ class AutoCombatController {
 
     val running get() = mode != CombatMode.OFF && mode != CombatMode.PAUSED
 
-    fun start(now: Long) {
+    fun start(now: Long, requestedSettings: CombatSettings = CombatSettings()) {
+        settings = CombatSettings.safe(requestedSettings.durationMinutes, requestedSettings.tapIntervalMs)
         mode = CombatMode.SEARCH
         status = "Автобой запущен вручную; ожидаю игровой HUD"
         startedAt = now
         phaseSince = now
-        lastGestureAt = now - MIN_TAP_INTERVAL_MS
+        lastGestureAt = now - settings.tapIntervalMs
+        successfulTargetTaps = 0
+        successfulAttackTaps = 0
+        confirmedSelections = 0
+        damageObservations = 0
         sentGestures = 0
         targetsLost = 0
         hudMissing = 0
@@ -86,8 +96,8 @@ class AutoCombatController {
 
     fun timeCheck(now: Long) {
         if (!running) return
-        if (now - startedAt >= MAX_DURATION_MS)
-            pause("достигнут предел 3 минуты")
+        if (now - startedAt >= settings.durationMs)
+            pause("достигнут предел ${settings.durationMinutes} мин")
         else if (waitingCallback && now - gestureRequestedAt > 4_000L)
             pause("Android не подтвердил жест за 4 секунды")
     }
@@ -147,12 +157,13 @@ class AutoCombatController {
                     if (targetValid >= 2 && targetDecision == TargetAction.ATTACK) {
                         mode = CombatMode.READY_ATTACK
                         phaseSince = now
+                        confirmedSelections++
                         status = "Выбрана живая цель; готовлю одиночную атаку"
                     }
                     return CombatStep(null,status,mode)
                 }
                 if (targetMissing >= 2 && controlsStable >= 2 &&
-                    now - lastGestureAt >= MIN_TAP_INTERVAL_MS) {
+                    now - lastGestureAt >= settings.tapIntervalMs) {
                     if (targetAttempts >= 3) {
                         pause("три попытки выбора цели без результата")
                         return CombatStep(null,status,mode)
@@ -164,6 +175,7 @@ class AutoCombatController {
                 if (panel && targetValid >= 2 && targetDecision == TargetAction.ATTACK) {
                     mode = CombatMode.READY_ATTACK
                     phaseSince = now
+                    confirmedSelections++
                     status = "Цель выбрана после нажатия; ожидаю возможность атаки"
                 } else if (now - phaseSince >= 7_000L) {
                     mode = CombatMode.SEARCH
@@ -179,7 +191,7 @@ class AutoCombatController {
                     return CombatStep(null,status,mode)
                 }
                 if (targetValid >= 2 && targetDecision == TargetAction.ATTACK &&
-                    controlsStable >= 2 && now - lastGestureAt >= MIN_TAP_INTERVAL_MS &&
+                    controlsStable >= 2 && now - lastGestureAt >= settings.tapIntervalMs &&
                     now - phaseSince >= 750L)
                     return send(CombatTap.ATTACK, now,
                         "Нажимаю «Атака» один раз; затем наблюдаю HP")
@@ -207,6 +219,7 @@ class AutoCombatController {
                             lowerHpFrames + 1 else 0
                         if (lowerHpFrames >= 2 && !damageObserved) {
                             damageObserved = true
+                            damageObservations++
                             status = "После касания HP снизилось с $baseline% до $targetHp%; " +
                                 "наблюдаю бой, повторных атак не отправляю"
                         }
@@ -223,8 +236,8 @@ class AutoCombatController {
     }
 
     private fun send(tap: CombatTap, now: Long, message: String): CombatStep {
-        if (sentGestures >= MAX_GESTURES) {
-            pause("достигнут предел $MAX_GESTURES касаний")
+        if (sentGestures >= settings.maxGestures) {
+            pause("достигнут предел ${settings.maxGestures} касаний")
             return CombatStep(null,status,mode)
         }
         sentGestures++
@@ -233,9 +246,22 @@ class AutoCombatController {
         gestureRequestedAt = now
         waitingCallback = true
         expectedTap = tap
-        status = "$message (${sentGestures}/$MAX_GESTURES)"
+        status = "$message (${sentGestures}/${settings.maxGestures})"
         return CombatStep(tap,status,mode)
     }
+
+    fun statistics(now: Long): CombatStatistics = CombatStatistics(
+        elapsedSeconds = ((now - startedAt).coerceAtLeast(0L) / 1000L),
+        targetTaps = successfulTargetTaps,
+        attackTaps = successfulAttackTaps,
+        confirmedSelections = confirmedSelections,
+        damageObservations = damageObservations,
+        lostPanels = targetsLost,
+        attemptedGestures = sentGestures,
+        gestureLimit = settings.maxGestures
+    )
+
+    fun configuredSettings(): CombatSettings = settings
 
     /** Called after the AccessibilityService gesture completion callback. */
     fun onGestureResult(now: Long, tap: CombatTap, ok: Boolean, observedHp: Int?) {
@@ -248,9 +274,11 @@ class AutoCombatController {
         }
         phaseSince = now
         if (tap == CombatTap.TARGET) {
+            successfulTargetTaps++
             mode = CombatMode.WAIT_TARGET
             status = "«Цель» нажата; ожидаю изменение панели противника"
         } else {
+            successfulAttackTaps++
             mode = CombatMode.WATCH_ATTACK
             beforeHp = observedHp
             lowerHpFrames = 0
