@@ -13,13 +13,6 @@ data class CombatStep(val tap: CombatTap?, val status: String, val mode: CombatM
  * physical display mapping, and that the user has not pressed STOP.
  */
 class AutoCombatController {
-    companion object {
-        const val MAX_DURATION_MS = 180_000L
-        const val MIN_TAP_INTERVAL_MS = 3_500L
-        const val MAX_GESTURES = 12
-        const val MAX_TARGETS_LOST = 6
-    }
-
     var mode: CombatMode = CombatMode.OFF
         private set
     var status: String = "Автобой выключен"
@@ -42,7 +35,6 @@ class AutoCombatController {
     private var controlsStable = 0
     private var targetMissing = 0
     private var targetValid = 0
-    private var targetAttempts = 0
     private var waitingCallback = false
     private var expectedTap: CombatTap? = null
     private var gestureRequestedAt = 0L
@@ -73,7 +65,6 @@ class AutoCombatController {
         controlsStable = 0
         targetMissing = 0
         targetValid = 0
-        targetAttempts = 0
         waitingCallback = false
         expectedTap = null
         beforeHp = null
@@ -171,10 +162,6 @@ class AutoCombatController {
                 }
                 if (targetMissing >= 2 && controlsStable >= 2 &&
                     now - lastGestureAt >= settings.tapIntervalMs) {
-                    if (targetAttempts >= 3) {
-                        pause("три попытки выбора цели без результата")
-                        return CombatStep(null,status,mode)
-                    }
                     return send(CombatTap.TARGET, now, "Нажимаю «Цель»")
                 }
             }
@@ -184,10 +171,10 @@ class AutoCombatController {
                     phaseSince = now
                     confirmedSelections++
                     status = "Цель выбрана после нажатия; ожидаю возможность атаки"
-                } else if (now - phaseSince >= 7_000L) {
+                } else if (now - phaseSince >= settings.tapIntervalMs) {
                     mode = CombatMode.SEARCH
                     phaseSince = now
-                    status = "Панель цели не подтверждена; повторная попытка ограничена"
+                    status = "Панель цели не подтверждена; продолжаю поиск"
                 }
             }
             CombatMode.READY_ATTACK -> {
@@ -206,15 +193,10 @@ class AutoCombatController {
             CombatMode.WATCH_ATTACK -> {
                 if (!panel && targetMissing >= 2) {
                     targetsLost++
-                    if (targetsLost >= MAX_TARGETS_LOST) {
-                        pause("достигнут предел смен целей $MAX_TARGETS_LOST")
-                    } else {
-                        mode = CombatMode.SEARCH
-                        phaseSince = now
-                        targetAttempts = 0
-                        beforeHp = null
-                        status = "Панель цели исчезла; ищу следующую (гибель не доказана)"
-                    }
+                    mode = CombatMode.SEARCH
+                    phaseSince = now
+                    beforeHp = null
+                    status = "Панель цели исчезла; ищу следующую (гибель не доказана)"
                     return CombatStep(null,status,mode)
                 }
                 val baseline = beforeHp
@@ -248,7 +230,6 @@ class AutoCombatController {
             return CombatStep(null,status,mode)
         }
         sentGestures++
-        if (tap == CombatTap.TARGET) targetAttempts++
         lastGestureAt = now
         gestureRequestedAt = now
         waitingCallback = true
