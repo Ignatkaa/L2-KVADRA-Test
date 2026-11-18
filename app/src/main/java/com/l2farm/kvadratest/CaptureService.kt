@@ -270,6 +270,7 @@ class CaptureService : Service() {
         }
         prefs.edit()
             .putBoolean("autoRunning",autoCombat.running)
+            .putString("autoMode",autoCombat.mode.name)
             .putString("autoStatus",current)
             .putInt("autoGestures",autoCombat.sentGestures)
             .putInt("autoTargetsLost",autoCombat.targetsLost)
