@@ -36,6 +36,7 @@ class CaptureService : Service() {
     private var rejectedFrames = 0
     private val targetTracker = TargetCombatTracker()
     private val targetHistory = TargetTransitionHistory()
+    private val attackImpact = AttackImpactMonitor()
     private var lastManualTapAt = 0L
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
@@ -59,16 +60,18 @@ class CaptureService : Service() {
         rejectedFrames = 0
         targetTracker.reset()
         targetHistory.reset()
+        attackImpact.reset()
         lastManualTapAt = 0L
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
+            .remove("attackFeedback")
             .remove("testTapAction").remove("testTapDeadline")
             .remove("testTapBlockedReason")
             .putBoolean("captureActive",false)
             .putString("testTapStatus","Одиночный тест касания не запрошен")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.6.3")
+            .setContentTitle("L2 KVADRA Test v1.7")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
@@ -133,6 +136,13 @@ class CaptureService : Service() {
                             targetHp = o.targetHp
                         )
                         frames++
+                        val impactResult = attackImpact.observe(
+                            now, o.targetVisible, o.targetHp
+                        )
+                        if (impactResult != null) {
+                            getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+                                .putString("attackFeedback",impactResult).apply()
+                        }
                         tryArmedSingleTap(vision, decision, img.width, img.height)
                         val stateChanged = targetHistory.record(
                             frame = frames,
@@ -270,6 +280,18 @@ class CaptureService : Service() {
         if (!cleared) return
         lastManualTapAt = elapsed
         service.tap(tapPoint.x.toFloat(),tapPoint.y.toFloat()) { ok ->
+            if (action == "ATTACK") {
+                if (ok) {
+                    attackImpact.start(decision.targetHp,System.currentTimeMillis())
+                    prefs.edit().putString("attackFeedback",
+                        "После жеста «Атака» наблюдаем HP цели: " +
+                            "${decision.targetHp ?: "?"}% (до 20 секунд)").apply()
+                } else {
+                    prefs.edit().putString("attackFeedback",
+                        "Android отменил жест «Атака»: наблюдение за уроном не запущено")
+                        .apply()
+                }
+            }
             prefs.edit().putString(
                 "testTapStatus",
                 if (ok) "Android выполнил жест $action: " + mappingInfo +
