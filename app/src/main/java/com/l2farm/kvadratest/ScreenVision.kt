@@ -5,7 +5,8 @@ import android.media.Image
 data class VisionResult(
     val observation: FarmObservation,
     val diagnostics: String,
-    val gameHud: Boolean
+    val gameHud: Boolean,
+    val controls: GameControls?
 )
 
 /**
@@ -46,6 +47,20 @@ object ScreenVision {
         val gameHud = listOf(120 to 38, 340 to 40, 1835 to 38)
             .count { (x, y) -> darkAt(x, y) } >= 2
 
+        fun packedRgb(px: Int, py: Int): Int? {
+            if (px !in 0 until width || py !in 0 until height) return null
+            val index = py.toLong() * plane.rowStride + px.toLong() * plane.pixelStride
+            if (index < 0 || index + 2 >= buffer.limit()) return null
+            val i = index.toInt()
+            val r = buffer.get(i).toInt() and 255
+            val g = buffer.get(i + 1).toInt() and 255
+            val b = buffer.get(i + 2).toInt() and 255
+            return (r shl 16) or (g shl 8) or b
+        }
+        val controls = if (gameHud)
+            GameControlsDetector.detect(width, height, ::packedRgb)
+        else null
+
         // Target frame is the panel at the top centre of the L2Meta display.
         val targetPanel = gameHud &&
             listOf(807 to 22, 1210 to 23, 1205 to 99)
@@ -72,7 +87,10 @@ object ScreenVision {
             "targetHits=${targetBar?.hits ?: 0} " +
             "targetRun=${targetBar?.continuity ?: 0} " +
             "targetScanY=${targetBar?.scanY ?: "?"} " +
-            "targetCoverage=${targetBar?.confidence ?: 0}"
-        return VisionResult(observation, diagnostics, gameHud)
+            "targetCoverage=${targetBar?.confidence ?: 0} " +
+            "controls=${controls?.layout ?: "?"} " +
+            "targetButton=${controls?.target?.let { "${it.x},${it.y}" } ?: "?"} " +
+            "attackButton=${controls?.attack?.let { "${it.x},${it.y}" } ?: "?"}"
+        return VisionResult(observation, diagnostics, gameHud, controls)
     }
 }
