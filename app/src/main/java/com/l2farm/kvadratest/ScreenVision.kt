@@ -41,8 +41,10 @@ object ScreenVision {
         fun red(c: IntArray) =
             c[0] > 125 && c[0] > c[1] * 1.45 && c[0] > c[2] * 1.3
 
-        val gameHud = listOf(95 to 38, 340 to 40, 820 to 38, 1195 to 40, 1540 to 42)
-            .count { (x, y) -> darkAt(x, y) } >= 3
+        // Stable dark HUD anchors on all seven supplied L2Meta PNGs.
+        // Avoid background-dependent pixels from the old recognizer.
+        val gameHud = listOf(120 to 38, 340 to 40, 1835 to 38)
+            .count { (x, y) -> darkAt(x, y) } >= 2
 
         // Target frame is the panel at the top centre of the L2Meta display.
         val targetPanel = gameHud &&
