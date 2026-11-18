@@ -23,6 +23,8 @@ class CaptureService : Service() {
         const val ACTION_STOP = "com.l2farm.kvadratest.STOP"
         const val CHANNEL = "capture"
         const val ACTION_SNAPSHOT = "com.l2farm.kvadratest.SNAPSHOT"
+        const val ACTION_AUTO_START = "com.l2farm.kvadratest.AUTO_START"
+        const val ACTION_AUTO_STOP = "com.l2farm.kvadratest.AUTO_STOP"
     }
     private var projection: MediaProjection? = null
     private var display: android.hardware.display.VirtualDisplay? = null
@@ -37,6 +39,9 @@ class CaptureService : Service() {
     private val targetTracker = TargetCombatTracker()
     private val targetHistory = TargetTransitionHistory()
     private val attackImpact = AttackImpactMonitor()
+    private val autoCombat = AutoCombatController()
+    private val autoHistory = java.util.ArrayDeque<String>()
+    private var lastAutoStatus = ""
     private var lastManualTapAt = 0L
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
@@ -45,7 +50,33 @@ class CaptureService : Service() {
             NotificationChannel(CHANNEL,"L2 screen diagnostics",NotificationManager.IMPORTANCE_LOW))
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) { stopSelf(); return START_NOT_STICKY }
+        if (intent?.action == ACTION_STOP) {
+            stopAutoCombat("Аварийная остановка: захват экрана выключен")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_AUTO_STOP) {
+            stopAutoCombat("Автобой выключен кнопкой СТОП")
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_AUTO_START) {
+            val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+            if (projection == null || !prefs.getBoolean("captureActive",false) ||
+                TestAccessibilityService.instance == null) {
+                prefs.edit().putString("autoStatus",
+                    "Автобой не запущен: нет захвата экрана или AccessibilityService")
+                    .putBoolean("autoRunning",false).apply()
+            } else {
+                autoCombat.start(SystemClock.elapsedRealtime())
+                targetTracker.reset()
+                autoHistory.clear()
+                lastAutoStatus = ""
+                prefs.edit().remove("testTapAction").remove("testTapDeadline")
+                    .putString("autoHistory","").apply()
+                persistAutoStatus(SystemClock.elapsedRealtime())
+            }
+            return START_NOT_STICKY
+        }
         if (projection != null) return START_NOT_STICKY
         val code = intent?.getIntExtra(RESULT_CODE, Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
         @Suppress("DEPRECATION")
@@ -54,6 +85,7 @@ class CaptureService : Service() {
         else intent?.getParcelableExtra(RESULT_DATA) as? Intent
         if (code != Activity.RESULT_OK || data == null) { stopSelf(); return START_NOT_STICKY }
         startedAt = System.currentTimeMillis()
+        startedAtElapsed = SystemClock.elapsedRealtime()
         snapshotSaved = false
         frames = 0
         skippedUiFrames = 0
@@ -61,19 +93,32 @@ class CaptureService : Service() {
         targetTracker.reset()
         targetHistory.reset()
         attackImpact.reset()
+        autoCombat.stop()
+        autoHistory.clear()
+        lastAutoStatus = ""
         lastManualTapAt = 0L
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("last").remove("snapshot").remove("snapshotFrame").remove("transitionHistory")
             .remove("attackFeedback")
+            .putBoolean("autoRunning",false)
+            .putString("autoStatus","Автобой выключен")
+            .putString("autoHistory","")
             .remove("testTapAction").remove("testTapDeadline")
             .remove("testTapBlockedReason")
             .putBoolean("captureActive",false)
             .putString("testTapStatus","Одиночный тест касания не запрошен")
             .putInt("skippedUiFrames",0).putInt("rejectedFrames",0).apply()
+        val stopIntent = Intent(this,CaptureService::class.java).setAction(ACTION_AUTO_STOP)
+        val stopPending = PendingIntent.getService(
+            this, 1007, stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val notification = Notification.Builder(this,CHANNEL)
-            .setContentTitle("L2 KVADRA Test v1.7")
+            .setContentTitle("L2 KVADRA Test v1.8")
             .setContentText("Анализ кадров активен; вернитесь в L2Meta")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
+            .addAction(Notification.Action.Builder(
+                android.R.drawable.ic_delete,"СТОП БОЯ",stopPending).build())
             .build()
         startForeground(1,notification)
         try {
@@ -95,6 +140,7 @@ class CaptureService : Service() {
                     if (now - lastFrame >= 750) {
                         lastFrame = now
                         expireArmedTapIfNeeded()
+                        autoCombat.timeCheck(SystemClock.elapsedRealtime())
                         val plane = img.planes[0]
                         val buf = plane.buffer
                         fun pale(xx:Int, yy:Int):Boolean {
@@ -110,6 +156,8 @@ class CaptureService : Service() {
                             pale((img.width*0.5).toInt(),(img.height*it).toInt())
                         }>=3
                         if(ownUi) {
+                            autoCombat.onOwnUi(SystemClock.elapsedRealtime())
+                            persistAutoStatus(SystemClock.elapsedRealtime())
                             skippedUiFrames++
                             val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
                             if (prefs.contains("testTapAction")) prefs.edit()
@@ -119,6 +167,11 @@ class CaptureService : Service() {
                         } else {
                         val vision = ScreenVision.inspect(img)
                         if (!vision.gameHud) {
+                            autoCombat.onFrame(
+                                SystemClock.elapsedRealtime(),false,false,false,
+                                null,TargetAction.HUD_UNAVAILABLE
+                            )
+                            persistAutoStatus(SystemClock.elapsedRealtime())
                             val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
                             if (prefs.contains("testTapAction")) prefs.edit()
                                 .putString("testTapBlockedReason",
@@ -144,6 +197,16 @@ class CaptureService : Service() {
                                 .putString("attackFeedback",impactResult).apply()
                         }
                         tryArmedSingleTap(vision, decision, img.width, img.height)
+                        if (autoCombat.running) {
+                            val step = autoCombat.onFrame(
+                                SystemClock.elapsedRealtime(),
+                                vision.gameHud, vision.controls != null,
+                                o.targetVisible, o.targetHp, decision.action
+                            )
+                            if (step.tap != null)
+                                dispatchAutoTap(step.tap,vision,img.width,img.height,decision)
+                        }
+                        persistAutoStatus(SystemClock.elapsedRealtime())
                         val stateChanged = targetHistory.record(
                             frame = frames,
                             elapsedMs = now - startedAt,
@@ -190,6 +253,78 @@ class CaptureService : Service() {
         }
         return START_NOT_STICKY
     }
+    private fun stopAutoCombat(reason: String) {
+        autoCombat.stop(reason)
+        persistAutoStatus(SystemClock.elapsedRealtime())
+    }
+
+    private fun persistAutoStatus(now: Long) {
+        val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
+        val current = "${autoCombat.mode}: ${autoCombat.status}"
+        if (current != lastAutoStatus) {
+            lastAutoStatus = current
+            val entry = "t+${(now - startedAtElapsed).coerceAtLeast(0L)/1000}s " +
+                current
+            autoHistory.addLast(entry)
+            while (autoHistory.size > 24) autoHistory.removeFirst()
+        }
+        prefs.edit()
+            .putBoolean("autoRunning",autoCombat.running)
+            .putString("autoStatus",current)
+            .putInt("autoGestures",autoCombat.sentGestures)
+            .putInt("autoTargetsLost",autoCombat.targetsLost)
+            .putString("autoHistory",autoHistory.joinToString("\n"))
+            .apply()
+    }
+
+    private var startedAtElapsed = 0L
+
+    /**
+     * Auto gestures only run after a user-confirmed three-minute session.
+     * Uses the same proven physical-display mapping as the manual tests.
+     */
+    private fun dispatchAutoTap(
+        action: CombatTap, vision: VisionResult,
+        capturedWidth: Int, capturedHeight: Int, decision: TargetDecision
+    ) {
+        if (!autoCombat.running) return
+        val controls = vision.controls ?: run {
+            autoCombat.pause("координаты игровых кнопок отсутствуют")
+            return
+        }
+        val point = if (action == CombatTap.TARGET) controls.target else controls.attack
+        val real = android.graphics.Point()
+        @Suppress("DEPRECATION")
+        (getSystemService(WINDOW_SERVICE) as android.view.WindowManager)
+            .defaultDisplay.getRealSize(real)
+        val mapped = TouchCoordinateMapper.map(
+            point,capturedWidth,capturedHeight,real.x,real.y
+        ) ?: run {
+            autoCombat.pause("невозможно пересчитать координаты кнопки $action")
+            return
+        }
+        val service = TestAccessibilityService.instance ?: run {
+            autoCombat.pause("служба специальных возможностей отключена")
+            return
+        }
+        val hpBefore = decision.targetHp
+        val gestureAt = SystemClock.elapsedRealtime()
+        getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
+            .putString("autoLastGesture",
+                "$action image=(${point.x},${point.y}) " +
+                    "touch=(${mapped.point.x},${mapped.point.y}) " +
+                    "${mapped.describe()}")
+            .apply()
+        service.tap(mapped.point.x.toFloat(),mapped.point.y.toFloat()) { ok ->
+            Handler(mainLooper).post {
+                autoCombat.onGestureResult(
+                    SystemClock.elapsedRealtime(),action,ok,hpBefore
+                )
+                persistAutoStatus(SystemClock.elapsedRealtime())
+            }
+        }
+    }
+
     /** Timeout must be handled even when the UI is not recognized as the game. */
     private fun expireArmedTapIfNeeded() {
         val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
@@ -212,6 +347,7 @@ class CaptureService : Service() {
      */
     private fun tryArmedSingleTap(vision: VisionResult, decision: TargetDecision,
         capturedWidth: Int, capturedHeight: Int) {
+        if (autoCombat.mode != CombatMode.OFF) return
         val prefs = getSharedPreferences("diagnostics",MODE_PRIVATE)
         val action = prefs.getString("testTapAction",null) ?: return
         val elapsed = SystemClock.elapsedRealtime()
@@ -353,6 +489,7 @@ class CaptureService : Service() {
         } finally { bitmap?.recycle() }
     }
     override fun onDestroy() {
+        stopAutoCombat("Захват остановлен — автобой выключен")
         getSharedPreferences("diagnostics",MODE_PRIVATE).edit()
             .remove("testTapAction").remove("testTapDeadline")
             .putBoolean("captureActive",false).apply()
